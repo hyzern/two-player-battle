@@ -187,6 +187,14 @@ let roundStartTime;
 let gameState;
 let roundOverTimer;
 let winningPlayer = null;
+// Countdown timer shown at the start of each round.  When greater than
+// zero the game is in a pre‑play state and a 3–2–1–Go animation is
+// displayed.  Once the timer reaches zero the round begins.
+let countdownTimer = 0;
+// Duration of the KO animation.  When greater than zero a large "KO!"
+// indicator is drawn in the centre of the screen.  It decays over
+// time until disappearing.
+let koTimer = 0;
 
 // Background star field.  An array of objects with positions,
 // radii and phases used to create a subtle twinkling effect.
@@ -267,6 +275,41 @@ const MANA_REGEN_RATE = 20; // mana points regenerated per second
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
 const ROUND_DURATION = 60; // seconds per round
 
+/**
+ * Compute a colour for the health bar based on the current health ratio.
+ * A full bar is green, half health is orange and low health is red.
+ * Colours are linearly interpolated between these anchors.
+ * @param {number} ratio A value between 0 (empty) and 1 (full)
+ * @returns {string} CSS colour in hexadecimal format
+ */
+function getHpColor(ratio) {
+  // Clamp ratio to [0,1]
+  if (ratio < 0) ratio = 0;
+  if (ratio > 1) ratio = 1;
+  // Colour anchors: low (red), medium (orange), high (green)
+  const red    = [255, 85, 85];   // #ff5555
+  const orange = [255, 170, 51];  // #ffaa33
+  const green  = [51, 255, 102];  // #33ff66
+  let c1, c2, t;
+  if (ratio >= 0.5) {
+    // Interpolate between orange and green when above 50%
+    t = (ratio - 0.5) / 0.5;
+    c1 = orange;
+    c2 = green;
+  } else {
+    // Interpolate between red and orange when below 50%
+    t = ratio / 0.5;
+    c1 = red;
+    c2 = orange;
+  }
+  const r = Math.round(c1[0] + (c2[0] - c1[0]) * t);
+  const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
+  const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
+  // Convert to hex string
+  const toHex = (v) => v.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 // Key mapping for control events (only keydown triggers actions to avoid
 // repeating the action while a key is held).  We register keydown events
 // below once the game has been initialised.
@@ -305,11 +348,13 @@ function init() {
   players[1].isAI = true;
   players[1].aiFireTimer = 1.5; // seconds until next shot
 
-  // Reset state for the very first round
+  // Reset state for the very first round.  We begin in a countdown
+  // state rather than immediately playing.  The resetRound call
+  // initialises player positions and timers, and sets countdownTimer.
   projectiles = [];
-  gameState = 'playing';
   roundOverTimer = 0;
   resetRound();
+  gameState = 'countdown';
 
   // Handle keyboard events for jump/fire.  Only react on the first
   // keydown (not on repeats) so that holding the key doesn’t repeatedly
@@ -377,8 +422,14 @@ function init() {
  * and positions, and resets the timer.
  */
 function resetRound() {
+  // Reset the round timer; this will count down after the countdown completes.
   roundTimer = ROUND_DURATION;
   projectiles = [];
+  // Initialise the pre‑round countdown.  We allocate a small
+  // additional slice for the "Go" cue so that it is visible for
+  // approximately half a second after the numbers expire.  The
+  // countdownTimer is measured in seconds.
+  countdownTimer = 3.5;
   // Place both players on the ground near the bottom of the canvas
   const baseY = canvas.height - 220 - 120; // leave space for controls at bottom
   for (const p of players) {
@@ -403,8 +454,20 @@ function gameLoop(timestamp) {
   const delta = (timestamp - lastFrameTime) / 1000; // convert ms to seconds
   lastFrameTime = timestamp;
 
-  // Update the world only during active play
-  if (gameState === 'playing') {
+  // Update state based on the current mode.  During the countdown
+  // phase we decrement the countdownTimer until it expires, at which
+  // point the game transitions into the playing state and the round
+  // timer begins decreasing.  While playing we update the world
+  // normally.  During round over we wait a few seconds before
+  // starting the next round or finishing the match.
+  if (gameState === 'countdown') {
+    countdownTimer -= delta;
+    if (countdownTimer <= 0) {
+      // Begin the round once the countdown completes
+      countdownTimer = 0;
+      gameState = 'playing';
+    }
+  } else if (gameState === 'playing') {
     updateWorld(delta);
   } else if (gameState === 'roundOver') {
     // Wait a couple of seconds before starting the next round or ending the game
@@ -431,10 +494,17 @@ function gameLoop(timestamp) {
         setTimeout(() => playTone(783.99, 0.4, 'triangle'), 600);
         gameState = 'finished';
       } else {
-        gameState = 'playing';
+        // Prepare the next round by resetting state and entering the
+        // countdown again.
         resetRound();
+        gameState = 'countdown';
       }
     }
+  }
+  // Decay the KO animation timer regardless of state
+  if (koTimer > 0) {
+    koTimer -= delta;
+    if (koTimer < 0) koTimer = 0;
   }
   // Draw the scene regardless of game state (so end messages are visible)
   drawScene();
@@ -512,6 +582,14 @@ function updateWorld(delta) {
   // Check if the round has ended because of time or health
   const playersDead = players.filter(p => p.hp <= 0);
   if (roundTimer <= 0 || playersDead.length > 0) {
+    // If a player has been knocked out, trigger a KO animation.  The KO
+    // indicator will be drawn for a short duration on top of the
+    // normal round over sequence.
+    if (playersDead.length > 0) {
+      koTimer = 1.2;
+      // Play a heavy hit sound to emphasise the KO
+      playTone(110, 0.3, 'square');
+    }
     // Determine winner: the player with more HP wins.  If one is dead the
     // other automatically wins.  If both alive at time end, compare HP.
     let winnerIndex;
@@ -523,7 +601,7 @@ function updateWorld(delta) {
     }
     gameState = 'roundOver';
     roundOverTimer = 0;
-    // Play a round‑over sound
+    // Play a round‑over sound (distinct from KO)
     playTone(329.63, 0.3, 'triangle');
   }
 
@@ -653,6 +731,15 @@ function drawScene() {
     ctx.font = '24px sans-serif';
     ctx.fillText('Refresh the page to play again.', canvas.width / 2, canvas.height / 2 + 40);
   }
+
+  // Draw pre‑round countdown overlay
+  if (gameState === 'countdown' && countdownTimer > 0) {
+    drawCountdown();
+  }
+  // Draw KO indicator if active
+  if (koTimer > 0) {
+    drawKO();
+  }
 }
 
 /**
@@ -706,9 +793,9 @@ function drawHUD() {
     const barY = y + avatarSize + 6;
     ctx.fillStyle = '#073047';
     ctx.fillRect(barX, barY, barWidth, hpBarHeight + manaBarHeight + barGap);
-    // HP bar (draw fill and border)
+    // HP bar (draw fill and border) – use dynamic colour based on health
     const hpWidth = (p.hp / MAX_HP) * barWidth;
-    ctx.fillStyle = '#33ff66';
+    ctx.fillStyle = getHpColor(p.hp / MAX_HP);
     ctx.fillRect(barX, barY, hpWidth, hpBarHeight);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 2;
@@ -755,9 +842,9 @@ function drawHUD() {
     const barY = y + avatarSize + 6;
     ctx.fillStyle = '#073047';
     ctx.fillRect(barX, barY, barWidth, hpBarHeight + manaBarHeight + barGap);
-    // HP bar
+    // HP bar (dynamic colour)
     const hpWidth2 = (p.hp / MAX_HP) * barWidth;
-    ctx.fillStyle = '#33ff66';
+    ctx.fillStyle = getHpColor(p.hp / MAX_HP);
     ctx.fillRect(barX + (barWidth - hpWidth2), barY, hpWidth2, hpBarHeight);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 2;
@@ -778,4 +865,62 @@ function drawHUD() {
   } else if (gameState === 'roundOver') {
     ctx.fillText('Round Over', canvas.width / 2, marginY + 25);
   }
+}
+
+/**
+ * Draw the countdown numbers in the centre of the screen.  The
+ * countdownTimer global is used to determine which value to show.  A
+ * subtle scale and alpha effect is applied to each number for
+ * polish.  When the timer reaches the final half second, display
+ * “Go!” instead of a number.
+ */
+function drawCountdown() {
+  const total = countdownTimer;
+  let text;
+  let alpha;
+  // We treat the first three seconds as numeric countdown and the final
+  // half second as a "Go" cue.  Subtracting 0.5 before rounding
+  // ensures that 3.5–2.5 displays "3", 2.5–1.5 displays "2" and
+  // 1.5–0.5 displays "1".
+  if (total > 0.5) {
+    const num = Math.ceil(total - 0.5);
+    text = num.toString();
+    // Fade out within each second: the fractional part of (t-0.5)
+    const frac = (total - 0.5) - Math.floor(total - 0.5);
+    alpha = 0.5 + 0.5 * frac;
+  } else {
+    text = 'Go!';
+    // Fade out during the final half second
+    alpha = total / 0.5;
+  }
+  // Draw the countdown text with scaling effect for visual interest
+  ctx.save();
+  ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+  ctx.font = 'bold 100px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  ctx.restore();
+}
+
+/**
+ * Draw a large KO indicator on screen.  The koTimer variable
+ * determines how long the indicator remains visible.  An easing
+ * function is used to scale and fade the text as it disappears.
+ */
+function drawKO() {
+  // Normalise timer into [0,1] where 1 means just appeared, 0 means done
+  const t = koTimer / 1.2;
+  // Ease out cubic for smooth shrink
+  const scale = 1 + 0.5 * t * t;
+  const alpha = t;
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = `rgba(255,70,70,${alpha.toFixed(2)})`;
+  ctx.font = 'bold 120px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('KO!', 0, 0);
+  ctx.restore();
 }
