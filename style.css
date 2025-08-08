@@ -1,0 +1,31 @@
+/*
+ * Basic styles for the two‑player battle game.  This file defines the
+ * appearance of the page and the canvas.  The game itself is drawn
+ * programmatically within the canvas, so this CSS is mostly used to
+ * position the canvas on the page and provide a nice backdrop.
+ */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000; /* fallback colour while the gradient draws */
+  font-family: sans-serif;
+}
+
+/* Center the canvas both horizontally and vertically */
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#gameCanvas {
+  /* The gradient background is drawn in the JS rather than via CSS so
+     that it will scale with the canvas and doesn’t require an extra
+     DOM element.  We still set a dark colour here as a fallback. */
+  background: #001a33;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+}
