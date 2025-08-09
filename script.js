@@ -33,6 +33,7 @@ const ctx    = canvas.getContext('2d');
 c
   onst imgJump  = new Image();
 c
+
   onst imgFire  = new Image();
 imgJump.src    = 'jump button.png';
 imgFire.src    = 'fire button.png';
@@ -60,13 +61,16 @@ imgJump.onload = onImageLoad;
 imgFire.onload = onImageLoad;
 
 
+
 // ---------------------------------------------------------------------
+
 // Character definitions and image assets.  Each playable hero is
 // described here with their name, portrait file and gameplay stats.
 // Stats are applied to the player when the character is selected.
 // Ultimate values come into play once the character's HP drops below
 // half; holding the fire button for the specified wind‑up launches
 // the ultimate.
+
 const CHAR_DATA = {
   rudo: {
     name: 'Rudo Ben',
@@ -125,14 +129,18 @@ const CHAR_DATA = {
 // Load character portraits.  Count them towards the total images to
 // load so that the character selection overlay only becomes active
 
+
 // after all portraits are ready.  Each portrait is stored on the
 // corresponding CHAR_DATA entry as `sprite`.
+
+
 for (const key of Object.keys(CHAR_DATA)) {
   const img = new Image();
   img.src = CHAR_DATA[key].file;
   CHAR_DATA[key].sprite = img;
   totalImagesToLoad++;
   img.onload = onImageLoad;
+  
 }
 // Also count jump and fire images in the total to load
 
@@ -157,6 +165,7 @@ cl
   constructor(x, name, image, direction, characterKey) {
     // Horizontal and vertical positions
     this.x = x;
+
     this.y = 0;
     this.startY = 0;
     this.vy = 0;
