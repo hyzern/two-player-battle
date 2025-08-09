@@ -127,19 +127,28 @@ class Projectile {
   update(delta) {
     this.x += this.dir * this.speed * delta;
   }
-  /** Check collision with a player */
+  /**
+   * Check collision with a player.  We shrink the player's bounding box by
+   * horizontal and vertical margins to better approximate the vulnerable
+   * portion of the sprite.  This avoids spurious hits when a projectile
+   * grazes the front or back of a character or clips empty space above the
+   * head after they jump.  See HITBOX_MARGIN_X_RATIO and
+   * HITBOX_MARGIN_Y_RATIO for the exact margins.
+   *
+   * @param {Player} player Target player
+   * @returns {boolean} True if this projectile overlaps the player's hitbox
+   */
   collides(player) {
-    // Compute bounding box of player
-    const px1 = player.x;
-    const px2 = player.x + player.width;
-    const py1 = player.y;
-    const py2 = player.y + player.height;
-    // Check if projectile centre is inside the player's rectangle
-    if (this.x - this.radius < px2 && this.x + this.radius > px1 &&
-        this.y - this.radius < py2 && this.y + this.radius > py1) {
-      return true;
-    }
-    return false;
+    const marginX = player.width * HITBOX_MARGIN_X_RATIO;
+    const marginY = player.height * HITBOX_MARGIN_Y_RATIO;
+    const px1 = player.x + marginX;
+    const px2 = player.x + player.width - marginX;
+    const py1 = player.y + marginY;
+    const py2 = player.y + player.height - marginY;
+    // Bounding circle vs axis aligned rectangle test
+    const withinX = this.x + this.radius > px1 && this.x - this.radius < px2;
+    const withinY = this.y + this.radius > py1 && this.y - this.radius < py2;
+    return withinX && withinY;
   }
 }
 
@@ -277,6 +286,17 @@ const MAX_HP    = 100;
 const MAX_MANA  = 100;
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
 const ROUND_DURATION = 60; // seconds per round
+
+// When debugging collisions you can enable hitbox rendering.  Setting this
+// flag to true will draw rectangles around the player hitboxes and circles
+// around projectiles so you can visualise exactly where collisions occur.
+const SHOW_HITBOX = true;
+
+// Define how much of the player sprite should be excluded from collision.
+// A margin of 0.2 means 20% of the width on each side is ignored when
+// determining hits.  Similarly for the vertical margin.
+const HITBOX_MARGIN_X_RATIO = 0.2;
+const HITBOX_MARGIN_Y_RATIO = 0.1;
 
 // Tunable gameplay parameters.  These values are used throughout the
 // movement, attack and resource mechanics.  They are grouped in a single
@@ -757,6 +777,12 @@ function drawScene() {
     part.draw(ctx);
   }
 
+  // Render hitboxes for debugging.  This is drawn after the main sprites and
+  // particles so that outlines appear on top of the characters and bullets.
+  if (SHOW_HITBOX) {
+    drawHitboxes();
+  }
+
   // Draw bottom control icons (non‑interactive, purely decorative)
   const controlSize = 120;
   const controlY    = canvas.height - controlSize - 10;
@@ -1020,6 +1046,34 @@ function drawDebugInfo() {
   for (const line of lines) {
     ctx.fillText(line, x, y);
     y += 16;
+  }
+  ctx.restore();
+}
+
+/**
+ * Draw outlines for all active hitboxes and projectiles.  Only invoked
+ * when SHOW_HITBOX is true.  This visual aid helps testers tune the
+ * collision margins by showing the exact rectangles used for hits.
+ */
+function drawHitboxes() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,255,0,0.7)';
+  ctx.lineWidth   = 2;
+  // Draw player hitboxes
+  for (const p of players) {
+    const marginX = p.width * HITBOX_MARGIN_X_RATIO;
+    const marginY = p.height * HITBOX_MARGIN_Y_RATIO;
+    const x = p.x + marginX;
+    const y = p.y + marginY;
+    const w = p.width - marginX * 2;
+    const h = p.height - marginY * 2;
+    ctx.strokeRect(x, y, w, h);
+  }
+  // Draw projectile bounding circles
+  for (const proj of projectiles) {
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.restore();
 }
