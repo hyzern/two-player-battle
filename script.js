@@ -1,4 +1,5 @@
 /*
+
  * Two‑player arena combat game.
  *
  * This script implements a simple arena battle between two characters.  Each
@@ -140,7 +141,8 @@ let imagesReady = false;
 
 // ---------------------------------------------------------------------
 // Player class.  Encapsulates the state and behaviour of each character.
-class Player {
+cl
+  ass Player {
   /**
    * Create a new player.
    * @param {number} x         Horizontal position on the canvas (top left)
