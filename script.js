@@ -30,7 +30,8 @@ const ctx    = canvas.getContext('2d');
 // loaded so that the character selection overlay shows correct
 // images before the game begins.  Images do not automatically start
 // the game; the user selects a character first.
-const imgJump  = new Image();
+c
+  onst imgJump  = new Image();
 c
   onst imgFire  = new Image();
 imgJump.src    = 'jump button.png';
@@ -57,6 +58,7 @@ function onImageLoad() {
 }
 imgJump.onload = onImageLoad;
 imgFire.onload = onImageLoad;
+
 
 // ---------------------------------------------------------------------
 // Character definitions and image assets.  Each playable hero is
@@ -122,6 +124,7 @@ const CHAR_DATA = {
 
 // Load character portraits.  Count them towards the total images to
 // load so that the character selection overlay only becomes active
+
 // after all portraits are ready.  Each portrait is stored on the
 // corresponding CHAR_DATA entry as `sprite`.
 for (const key of Object.keys(CHAR_DATA)) {
@@ -132,6 +135,7 @@ for (const key of Object.keys(CHAR_DATA)) {
   img.onload = onImageLoad;
 }
 // Also count jump and fire images in the total to load
+
 totalImagesToLoad += 2;
 
 
@@ -196,6 +200,7 @@ cl
    */
   jump() {
     const stats = CHAR_DATA[this.characterKey];
+
     // Determine configuration overrides for this player.  If a value
     // exists in the per‑player config object use it; otherwise fall
     // back to the character definition.  The index property is set
@@ -229,6 +234,7 @@ cl
     // followed by stopFire() instead of this method.
     this.fireNormal();
   }
+    
 
   /**
    * Fire a normal projectile.  Uses the character's stats for speed,
@@ -261,6 +267,7 @@ cl
 
   /**
    * Launch the ultimate attack if ready.  Spawns different projectiles
+
    * depending on the character.  After firing, the ultimate is no
    * longer available for the remainder of the round.
    */
@@ -294,6 +301,7 @@ cl
     } else if (this.characterKey === 'cenno') {
       projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
         speed: stats.ultSpeed,
+        
         damage: stats.ultDamage,
         size: stats.ultSize,
         isUltimate: true,
@@ -327,6 +335,7 @@ cl
     this.fireHoldTime = 0;
   }
 
+    
   /**
    * Stop holding the fire button.  Determines whether to fire
    * a normal or ultimate projectile based on hold time and
