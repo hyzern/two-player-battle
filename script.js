@@ -1234,7 +1234,11 @@ function initDebugControls() {
     frontRatio: document.getElementById('debug-front-ratio'),
     // Defaults buttons
     saveDefaultsBtn: document.getElementById('debug-save-defaults'),
-    resetDefaultsBtn: document.getElementById('debug-reset-defaults')
+    resetDefaultsBtn: document.getElementById('debug-reset-defaults'),
+    // Patch management controls
+    patchNameInput: document.getElementById('debug-patch-name'),
+    savePatchBtn: document.getElementById('debug-save-patch'),
+    loadPatchSelect: document.getElementById('debug-load-patch')
   };
   // If any required input is missing bail out
   for (const key in refs) {
@@ -1367,5 +1371,88 @@ function initDebugControls() {
     config.p2 = { ...defaultConfig.p2 };
     // Refresh inputs to reflect restored values and button label
     populateInputs();
+  });
+
+  // -----------------------------------------------------------------------
+  // Patch management
+  // Saved patches are stored in localStorage under the key 'gamePatches'.  Each
+  // patch is an entry in the stored object mapping a name to a JSON string
+  // representing the config.  Another key 'lastPatch' stores the most
+  // recently selected patch name.  Use the controls in the debug panel to
+  // save and load patches.  Patches persist between page reloads.
+
+  function loadPatches() {
+    try {
+      const raw = localStorage.getItem('gamePatches');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function savePatches(patches) {
+    try {
+      localStorage.setItem('gamePatches', JSON.stringify(patches));
+    } catch (e) {
+      /* ignore storage errors */
+    }
+  }
+  function refreshPatchSelect() {
+    const patches = loadPatches();
+    // Clear existing options (except the placeholder)
+    const select = refs.loadPatchSelect;
+    // Remove all but first option
+    while (select.options.length > 1) {
+      select.remove(1);
+    }
+    Object.keys(patches).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+    // Set selected option if last patch exists
+    const last = localStorage.getItem('lastPatch');
+    if (last && patches[last]) {
+      select.value = last;
+    } else {
+      select.value = '';
+    }
+  }
+  // Initialize dropdown on load
+  refreshPatchSelect();
+  // Save patch button handler
+  refs.savePatchBtn.addEventListener('click', () => {
+    const name = refs.patchNameInput.value.trim();
+    if (!name) return;
+    const patches = loadPatches();
+    // Store a deep copy of the current configuration
+    patches[name] = JSON.stringify(config);
+    savePatches(patches);
+    localStorage.setItem('lastPatch', name);
+    refreshPatchSelect();
+  });
+  // Load patch selection handler
+  refs.loadPatchSelect.addEventListener('change', () => {
+    const name = refs.loadPatchSelect.value;
+    if (!name) return;
+    const patches = loadPatches();
+    const raw = patches[name];
+    if (!raw) return;
+    try {
+      const cfg = JSON.parse(raw);
+      // Restore config fields from saved patch
+      config.p1 = { ...cfg.p1 };
+      config.p2 = { ...cfg.p2 };
+      config.roundDuration = cfg.roundDuration;
+      config.hitboxMarginX = cfg.hitboxMarginX;
+      config.hitboxMarginY = cfg.hitboxMarginY;
+      config.frontHitRatio = cfg.frontHitRatio;
+      // Save last patch
+      localStorage.setItem('lastPatch', name);
+      // Update UI
+      populateInputs();
+    } catch (e) {
+      console.error('Failed to load patch', e);
+    }
   });
 }
