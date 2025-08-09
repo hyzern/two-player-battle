@@ -30,7 +30,8 @@ const ctx    = canvas.getContext('2d');
 // images before the game begins.  Images do not automatically start
 // the game; the user selects a character first.
 const imgJump  = new Image();
-const imgFire  = new Image();
+c
+  onst imgFire  = new Image();
 imgJump.src    = 'jump button.png';
 imgFire.src    = 'fire button.png';
 
@@ -132,6 +133,7 @@ for (const key of Object.keys(CHAR_DATA)) {
 // Also count jump and fire images in the total to load
 totalImagesToLoad += 2;
 
+
 // Once all images are ready this flag becomes true.  init() uses
 // it to enable the selection overlay.
 let imagesReady = false;
@@ -164,6 +166,7 @@ class Player {
     this.image  = charDef.sprite;
     this.direction = direction;
     // Stats and HP
+    
     this.maxHp = 100;
     this.hp    = 100;
     this.wins  = 0;
