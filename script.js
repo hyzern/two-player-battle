@@ -295,8 +295,19 @@ const config = {
   // Hit point damage dealt when a projectile collides with a player
   projectileDamage: 15,
   // Mana points regenerated per second
-  manaRegenRate: 20
+  manaRegenRate: 20,
+  // Length of a single round in seconds.  The timer counts down from this
+  // value to zero.  Exposed in the debug panel so testers can speed up or
+  // slow down matches.
+  roundDuration: 60
 };
+
+// Copy of the initial configuration.  When the user hits "Reset defaults"
+// from the debug panel the values in this object are used to restore the
+// game parameters.  When "Update defaults" is clicked the current config
+// values are copied into this object.  Because the properties are primitive
+// numbers the spread operator performs a deep copy.
+let defaultConfig = { ...config };
 
 // -----------------------------------------------------------------------------
 // Debugging configuration.  When SHOW_DEBUG is true a small overlay is drawn
@@ -464,7 +475,9 @@ function init() {
  */
 function resetRound() {
   // Reset the round timer; this will count down after the countdown completes.
-  roundTimer = ROUND_DURATION;
+  // Use the configurable round duration rather than the constant so that
+  // testers can adjust match length via the debug panel.  See config.roundDuration.
+  roundTimer = config.roundDuration;
   projectiles = [];
   // Initialise the pre‑round countdown.  We allocate a small
   // additional slice for the "Go" cue so that it is visible for
@@ -993,7 +1006,7 @@ function drawDebugInfo() {
     `Damage per hit: ${config.projectileDamage} HP`,
     `Mana regen: ${config.manaRegenRate}/s`,
     `Max HP: ${MAX_HP}, Max mana: ${MAX_MANA}`,
-    `Round duration: ${ROUND_DURATION}s`
+    `Round duration: ${config.roundDuration}s`
   ];
   // Starting position for overlay (bottom‑left with a small margin)
   const margin = 20;
@@ -1026,9 +1039,13 @@ function initDebugControls() {
   const projSpeedInput       = document.getElementById('debug-projectile-speed');
   const projDamageInput      = document.getElementById('debug-projectile-damage');
   const manaRegenInput       = document.getElementById('debug-mana-regen');
+  const roundDurationInput   = document.getElementById('debug-round-duration');
+  const saveDefaultsBtn      = document.getElementById('debug-save-defaults');
+  const resetDefaultsBtn     = document.getElementById('debug-reset-defaults');
   // If any of the inputs are missing we assume the panel is not present
   if (!jumpCostInput || !jumpVelocityInput || !fireCostInput ||
-      !projSpeedInput || !projDamageInput || !manaRegenInput) {
+      !projSpeedInput || !projDamageInput || !manaRegenInput ||
+      !roundDurationInput || !saveDefaultsBtn || !resetDefaultsBtn) {
     return;
   }
   // Populate initial values from config.  Note that jump velocity is
@@ -1040,6 +1057,7 @@ function initDebugControls() {
   projSpeedInput.value    = config.projectileSpeed;
   projDamageInput.value   = config.projectileDamage;
   manaRegenInput.value    = config.manaRegenRate;
+  roundDurationInput.value= config.roundDuration;
   // Attach listeners to update config when changed
   jumpCostInput.addEventListener('input', () => {
     const val = parseFloat(jumpCostInput.value);
@@ -1064,5 +1082,31 @@ function initDebugControls() {
   manaRegenInput.addEventListener('input', () => {
     const val = parseFloat(manaRegenInput.value);
     if (!isNaN(val)) config.manaRegenRate = val;
+  });
+
+  // Update the round duration when the input changes.  Round duration must be
+  // positive.  Values are interpreted as seconds.
+  roundDurationInput.addEventListener('input', () => {
+    const val = parseFloat(roundDurationInput.value);
+    if (!isNaN(val) && val > 0) config.roundDuration = val;
+  });
+
+  // When "Update defaults" is clicked copy the current config values into
+  // defaultConfig so that future resets revert to these settings.
+  saveDefaultsBtn.addEventListener('click', () => {
+    defaultConfig = { ...config };
+  });
+
+  // When "Reset defaults" is clicked restore the config values from
+  // defaultConfig and update all inputs to reflect the restored settings.
+  resetDefaultsBtn.addEventListener('click', () => {
+    Object.assign(config, defaultConfig);
+    jumpCostInput.value      = config.jumpCost;
+    jumpVelocityInput.value  = Math.abs(config.jumpVelocity);
+    fireCostInput.value      = config.fireCost;
+    projSpeedInput.value     = config.projectileSpeed;
+    projDamageInput.value    = config.projectileDamage;
+    manaRegenInput.value     = config.manaRegenRate;
+    roundDurationInput.value = config.roundDuration;
   });
 }
