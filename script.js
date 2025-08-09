@@ -275,6 +275,24 @@ const MANA_REGEN_RATE = 20; // mana points regenerated per second
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
 const ROUND_DURATION = 60; // seconds per round
 
+// -----------------------------------------------------------------------------
+// Debugging configuration.  When SHOW_DEBUG is true a small overlay is drawn
+// at the bottom of the screen listing key gameplay values.  These values are
+// extracted from constants defined in this file.  Toggling this flag makes it
+// easy to enable/disable the overlay for development and then hide it in
+// production.
+const SHOW_DEBUG = true;
+
+// Gameplay constants used for the debug overlay.  The values here mirror
+// numbers used throughout the game logic.  Should you tweak jump cost,
+// projectile speed or damage in future, update these definitions so the
+// overlay remains accurate.
+const JUMP_COST        = 10;
+const JUMP_VELOCITY    = -15;
+const FIRE_COST        = 20;
+const PROJECTILE_SPEED = 600;
+const PROJECTILE_DAMAGE = 15;
+
 /**
  * Compute a colour for the health bar based on the current health ratio.
  * A full bar is green, half health is orange and low health is red.
@@ -719,6 +737,11 @@ function drawScene() {
     controlSize,
     controlSize);
 
+  // When enabled draw a debugging overlay listing key constants.  This call
+  // happens after most scene elements so that the overlay appears on top
+  // of the arena artwork but still behind the end‑of‑match message.
+  drawDebugInfo();
+
   // If the match has been won by someone, overlay a message
   const winner = players.find(p => p.wins >= 2);
   if (gameState === 'finished' && winner) {
@@ -922,5 +945,44 @@ function drawKO() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('KO!', 0, 0);
+  ctx.restore();
+}
+
+/**
+ * Draw a small debugging overlay in the corner of the screen.  The overlay
+ * lists the core gameplay parameters such as jump cost, projectile speed and
+ * damage.  This function is gated by the SHOW_DEBUG flag so that it can be
+ * left in the code but hidden in production.  Values are pulled from
+ * constants defined near the top of this file.
+ */
+function drawDebugInfo() {
+  if (!SHOW_DEBUG) return;
+  // Assemble text lines describing the gameplay constants.  We take the
+  // absolute value of the jump velocity for display because the sign only
+  // indicates direction in code (negative for upward).  If you adjust any of
+  // these values in the logic, update the corresponding constant above.
+  const lines = [
+    `Jump cost: ${JUMP_COST} mana`,
+    `Jump velocity: ${Math.abs(JUMP_VELOCITY)} px/s`,
+    `Fire cost: ${FIRE_COST} mana`,
+    `Projectile speed: ${PROJECTILE_SPEED} px/s`,
+    `Damage per hit: ${PROJECTILE_DAMAGE} HP`,
+    `Mana regen: ${MANA_REGEN_RATE}/s`,
+    `Max HP: ${MAX_HP}, Max mana: ${MAX_MANA}`,
+    `Round duration: ${ROUND_DURATION}s`
+  ];
+  // Starting position for overlay (bottom‑left with a small margin)
+  const margin = 20;
+  const x = margin;
+  let y = canvas.height - margin - lines.length * 16;
+  ctx.save();
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const line of lines) {
+    ctx.fillText(line, x, y);
+    y += 16;
+  }
   ctx.restore();
 }
