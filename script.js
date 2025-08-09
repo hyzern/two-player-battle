@@ -71,18 +71,28 @@ class Player {
     this.hp   = 100;
     this.mana = 100;
     this.wins = 0;
+    // Cooldown timer preventing immediate successive shots.  When >0
+    // the player may not fire.  This is decremented each frame in
+    // updateWorld().  The initial value is zero so the player can fire
+    // immediately on round start.
+    this.fireCooldownTimer = 0;
+    // Index of the player in the players array (0 or 1).  Assigned in
+    // init() after creation.
+    this.index = 0;
   }
   /**
    * Attempt to make the player jump.  Only possible if on the ground and
    * sufficient mana is available.
    */
   jump() {
-    // Use configured cost and velocity so these values can be tweaked via the
-    // debug controls.  The negative sign on jumpVelocity in config indicates
-    // upward motion.
-    if (this.vy === 0 && this.mana >= config.jumpCost) {
-      this.vy = config.jumpVelocity;
-      this.mana -= config.jumpCost;
+    // Look up the configuration for this player.  Each player has their own
+    // tunable parameters stored under config.p1 or config.p2.  If the
+    // character is grounded and has sufficient mana, apply the jump
+    // velocity and deduct mana accordingly.
+    const cfg = this.index === 0 ? config.p1 : config.p2;
+    if (this.vy === 0 && this.mana >= cfg.jumpCost) {
+      this.vy = cfg.jumpVelocity;
+      this.mana -= cfg.jumpCost;
       // Play a short jump sound (slightly higher pitch)
       playTone(523.25, 0.05, 'triangle');
     }
@@ -92,14 +102,16 @@ class Player {
    * is available.  The projectile direction is determined by this.direction.
    */
   fire() {
-    // Use configured mana cost for firing so it can be adjusted via the
-    // debug controls.
-    if (this.mana >= config.fireCost) {
-      this.mana -= config.fireCost;
+    const cfg = this.index === 0 ? config.p1 : config.p2;
+    // Cannot fire if mana is too low or still cooling down
+    if (this.mana >= cfg.fireCost && this.fireCooldownTimer <= 0) {
+      this.mana -= cfg.fireCost;
       // Spawn the projectile at roughly mid‑height of the sprite
       const spawnY = this.y + this.height * 0.5;
       const spawnX = this.direction === 1 ? this.x + this.width : this.x;
       projectiles.push(new Projectile(spawnX, spawnY, this.direction, this));
+      // Reset cooldown timer
+      this.fireCooldownTimer = cfg.fireCooldown;
       // Play a firing sound (higher pitch)
       playTone(659.25, 0.05, 'square');
     }
@@ -120,9 +132,12 @@ class Projectile {
     this.dir = dir;
     this.owner = owner;
     this.radius = 8;
-    // Use speed from the global config so projectile velocity can be adjusted
-    // dynamically via the debug panel.
-    this.speed = config.projectileSpeed;
+    // Look up speed and damage from the owner's configuration.  Each
+    // character can customise their projectile speed and damage via the
+    // debug panel.
+    const cfg = owner.index === 0 ? config.p1 : config.p2;
+    this.speed = cfg.projectileSpeed;
+    this.damage = cfg.projectileDamage;
   }
   update(delta) {
     this.x += this.dir * this.speed * delta;
@@ -139,13 +154,41 @@ class Projectile {
    * @returns {boolean} True if this projectile overlaps the player's hitbox
    */
   collides(player) {
-    const marginX = player.width * HITBOX_MARGIN_X_RATIO;
-    const marginY = player.height * HITBOX_MARGIN_Y_RATIO;
-    const px1 = player.x + marginX;
-    const px2 = player.x + player.width - marginX;
+    // Compute horizontal and vertical margins to shrink the raw sprite
+    // dimensions.  These margins exclude portions of the image that are
+    // mostly empty or decorative (e.g. feathers or antlers).  Values are
+    // taken from the global configuration so that testers can adjust them.
+    const marginX = player.width * config.hitboxMarginX;
+    const marginY = player.height * config.hitboxMarginY;
+    // Determine the forward-facing region of the character.  When facing
+    // right (direction === 1) the forward side is the right half; when
+    // facing left it is the left half.  The FRONT_HIT_RATIO defines how
+    // much of the sprite counts as the front.  We compute a pair of
+    // horizontal bounds (fx1, fx2) representing this region before
+    // applying the collision margins.
+    let fx1, fx2;
+    if (player.direction === 1) {
+      // Facing right: front is the right portion
+      fx1 = player.x + player.width * (1 - config.frontHitRatio);
+      fx2 = player.x + player.width;
+    } else {
+      // Facing left: front is the left portion
+      fx1 = player.x;
+      fx2 = player.x + player.width * config.frontHitRatio;
+    }
+    // Apply margins: clamp the forward region by marginX on both sides to
+    // further narrow the vulnerable area.  We combine the front region
+    // and margins to yield the final horizontal bounds px1..px2.
+    const px1 = Math.max(fx1 + marginX, player.x + marginX);
+    const px2 = Math.min(fx2 - marginX, player.x + player.width - marginX);
+    // Vertical bounds are symmetric regardless of facing direction.
     const py1 = player.y + marginY;
     const py2 = player.y + player.height - marginY;
-    // Bounding circle vs axis aligned rectangle test
+    // Bounding circle vs axis aligned rectangle test: check whether the
+    // projectile’s circle intersects the rectangle defined above.  We
+    // perform a simple overlap check by comparing the projectile’s
+    // extents against the rectangle edges.  If both horizontal and
+    // vertical extents overlap there is a collision.
     const withinX = this.x + this.radius > px1 && this.x - this.radius < px2;
     const withinY = this.y + this.radius > py1 && this.y - this.radius < py2;
     return withinX && withinY;
@@ -208,6 +251,12 @@ let countdownTimer = 0;
 // indicator is drawn in the centre of the screen.  It decays over
 // time until disappearing.
 let koTimer = 0;
+
+// When true the game world stops updating, allowing testers to tweak
+// configuration values without the action progressing.  The scene is still
+// drawn each frame.  Toggled via the pause button in the debug panel or
+// the 'P' key on the keyboard.
+let paused = false;
 
 // Background star field.  An array of objects with positions,
 // radii and phases used to create a subtle twinkling effect.
@@ -285,49 +334,67 @@ function resumeAudio() {
 const MAX_HP    = 100;
 const MAX_MANA  = 100;
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
-const ROUND_DURATION = 60; // seconds per round
 
 // When debugging collisions you can enable hitbox rendering.  Setting this
 // flag to true will draw rectangles around the player hitboxes and circles
 // around projectiles so you can visualise exactly where collisions occur.
 const SHOW_HITBOX = true;
 
-// Define how much of the player sprite should be excluded from collision.
-// A margin of 0.2 means 20% of the width on each side is ignored when
-// determining hits.  Similarly for the vertical margin.
-const HITBOX_MARGIN_X_RATIO = 0.2;
-const HITBOX_MARGIN_Y_RATIO = 0.1;
+// NOTE: The collision margins and front hit ratio have been moved into the
+// configurable `config` object below so that testers can adjust them in
+// real‑time via the debug panel.  The definitions here are retained for
+// reference but are no longer used directly.
 
-// Tunable gameplay parameters.  These values are used throughout the
-// movement, attack and resource mechanics.  They are grouped in a single
-// object so that they can be changed at runtime via the debug panel without
-// needing to reassign constants.  Each property corresponds to a field
-// adjustable in the on‑screen debug UI.
+// Tunable gameplay parameters.  These values are grouped into per‑player
+// sections so that each character can be tuned independently.  Global
+// settings (such as round duration and hitbox shape) live alongside the
+// player sections.  Values are editable in real‑time via the debug panel.
 const config = {
-  // Mana consumed per jump
-  jumpCost: 10,
-  // Upward velocity applied when jumping (negative is up)
-  jumpVelocity: -15,
-  // Mana consumed per projectile fired
-  fireCost: 20,
-  // Horizontal speed of projectiles (pixels per second)
-  projectileSpeed: 600,
-  // Hit point damage dealt when a projectile collides with a player
-  projectileDamage: 15,
-  // Mana points regenerated per second
-  manaRegenRate: 20,
+  // Player‑specific configuration.  Each sub‑object contains the core
+  // parameters controlling movement, attacks and resource consumption for
+  // that fighter.  Note that jumpVelocity is stored as a negative value to
+  // indicate upward motion.  Fire cooldown controls how often a player
+  // may fire regardless of mana (seconds).
+  p1: {
+    jumpCost: 10,
+    jumpVelocity: -15,
+    fireCost: 20,
+    projectileSpeed: 600,
+    projectileDamage: 15,
+    manaRegenRate: 20,
+    fireCooldown: 0.4
+  },
+  p2: {
+    jumpCost: 10,
+    jumpVelocity: -15,
+    fireCost: 20,
+    projectileSpeed: 600,
+    projectileDamage: 15,
+    manaRegenRate: 20,
+    fireCooldown: 0.4
+  },
   // Length of a single round in seconds.  The timer counts down from this
   // value to zero.  Exposed in the debug panel so testers can speed up or
   // slow down matches.
-  roundDuration: 60
+  roundDuration: 60,
+  // Collision margins.  These percentages shrink the hitbox horizontally
+  // and vertically; e.g. 0.2 means 20% of each side is excluded.  Adjust
+  // these to refine how forgiving collisions feel.
+  hitboxMarginX: 0.2,
+  hitboxMarginY: 0.1,
+  // Fraction of the sprite width considered to be the forward side.  Only
+  // this portion of the character can be hit.  A value of 0.5 means half
+  // of the body (facing the opponent) is vulnerable.
+  frontHitRatio: 0.5
 };
 
 // Copy of the initial configuration.  When the user hits "Reset defaults"
 // from the debug panel the values in this object are used to restore the
 // game parameters.  When "Update defaults" is clicked the current config
-// values are copied into this object.  Because the properties are primitive
-// numbers the spread operator performs a deep copy.
-let defaultConfig = { ...config };
+// values are copied into this object.  Because the structure contains
+// nested objects we use JSON methods to perform a deep clone when
+// updating defaults.
+let defaultConfig = JSON.parse(JSON.stringify(config));
 
 // -----------------------------------------------------------------------------
 // Debugging configuration.  When SHOW_DEBUG is true a small overlay is drawn
@@ -398,6 +465,12 @@ function init() {
     new Player(p1X, 'Cenno Kio', imgPlayer1,  1),
     new Player(p2X, 'Rudo Ben',  imgPlayer2, -1)
   ];
+  // Assign each player a unique index (0 or 1) so configuration can be
+  // referenced via config.p1 and config.p2.  The index is used in methods
+  // such as jump() and fire() to look up per‑player parameters.
+  players.forEach((p, i) => {
+    p.index = i;
+  });
 
   // Scale player sprites proportionally based on their image aspect ratio.
   // Both characters share the same nominal height to ensure they sit
@@ -429,6 +502,15 @@ function init() {
   document.addEventListener('keydown', (e) => {
     // Ignore repeated key presses
     if (e.repeat) return;
+    // Toggle pause with the P key.  When paused the game world stops
+    // updating until resumed.  Do not trigger any other actions.
+    if (e.code === 'KeyP') {
+      paused = !paused;
+      // Update the debug panel button if present
+      const pauseBtn = document.getElementById('debug-pause-btn');
+      if (pauseBtn) pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      return;
+    }
     const ctl = controls[e.code];
     if (!ctl) return;
     const player = players[ctl.playerIndex];
@@ -512,6 +594,7 @@ function resetRound() {
     p.startY = baseY;
     p.y = baseY;
     p.vy = 0;
+    p.fireCooldownTimer = 0;
   }
 }
 
@@ -527,6 +610,12 @@ let lastFrameTime = 0;
 function gameLoop(timestamp) {
   const delta = (timestamp - lastFrameTime) / 1000; // convert ms to seconds
   lastFrameTime = timestamp;
+  // If the game is paused do not advance any timers or update entities.
+  if (paused) {
+    drawScene();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
 
   // Update state based on the current mode.  During the countdown
   // phase we decrement the countdownTimer until it expires, at which
@@ -598,8 +687,15 @@ function updateWorld(delta) {
 
   // Update players: apply gravity, update vertical position, regen mana
   for (const p of players) {
+    // Look up per‑player configuration
+    const cfg = p.index === 0 ? config.p1 : config.p2;
     // Mana regeneration capped at MAX_MANA
-        p.mana = Math.min(MAX_MANA, p.mana + config.manaRegenRate * delta);
+    p.mana = Math.min(MAX_MANA, p.mana + cfg.manaRegenRate * delta);
+    // Decrement fire cooldown timer
+    if (p.fireCooldownTimer > 0) {
+      p.fireCooldownTimer -= delta;
+      if (p.fireCooldownTimer < 0) p.fireCooldownTimer = 0;
+    }
     // Apply gravity
     if (p.vy !== 0 || p.y < p.startY) {
       p.vy += GRAVITY * delta;
@@ -622,9 +718,9 @@ function updateWorld(delta) {
     // Check collisions with the opposing player
     for (const p of players) {
       if (p !== proj.owner && p.hp > 0 && proj.collides(p)) {
-        // Collision!  Reduce target health and remove projectile
-        // Apply configurable damage when a projectile hits a player
-        p.hp -= config.projectileDamage;
+        // Collision!  Reduce target health and remove projectile.  Damage
+        // is determined by the owner’s projectile configuration.
+        p.hp -= proj.damage;
         // Spawn explosion particles at impact point.  Colour reflects
         // which player fired the projectile.
         const colour = (proj.owner === players[0]) ? '#ffd85b' : '#ff5b5b';
@@ -699,7 +795,8 @@ function updateAI(delta) {
   const ai = players[1];
   // Fire periodically based on a countdown timer
   ai.aiFireTimer -= delta;
-  if (ai.aiFireTimer <= 0 && ai.mana >= 20) {
+  const cfg = config.p2;
+  if (ai.aiFireTimer <= 0 && ai.mana >= cfg.fireCost && ai.fireCooldownTimer <= 0) {
     ai.fire();
     // schedule next shot between 1 and 2 seconds
     ai.aiFireTimer = 1 + Math.random() * 1.5;
@@ -1024,16 +1121,26 @@ function drawDebugInfo() {
   // absolute value of the jump velocity for display because the sign only
   // indicates direction in code (negative for upward).  If you adjust any of
   // these values in the logic, update the corresponding constant above.
-  const lines = [
-    `Jump cost: ${config.jumpCost} mana`,
-    `Jump velocity: ${Math.abs(config.jumpVelocity)} px/s`,
-    `Fire cost: ${config.fireCost} mana`,
-    `Projectile speed: ${config.projectileSpeed} px/s`,
-    `Damage per hit: ${config.projectileDamage} HP`,
-    `Mana regen: ${config.manaRegenRate}/s`,
-    `Max HP: ${MAX_HP}, Max mana: ${MAX_MANA}`,
-    `Round duration: ${config.roundDuration}s`
-  ];
+  // Construct debug lines for each player and global settings.  Jump velocity
+  // is displayed as a positive value for readability.  This overlay is
+  // primarily intended for quick inspection; detailed editing is handled
+  // through the debug panel.
+  const lines = [];
+  ['p1','p2'].forEach((key, idx) => {
+    const cfg = config[key];
+    lines.push(`Player ${idx+1}:`);
+    lines.push(`  Jump cost: ${cfg.jumpCost} mana`);
+    lines.push(`  Jump velocity: ${Math.abs(cfg.jumpVelocity)} px/s`);
+    lines.push(`  Fire cost: ${cfg.fireCost} mana`);
+    lines.push(`  Fire cooldown: ${cfg.fireCooldown}s`);
+    lines.push(`  Projectile speed: ${cfg.projectileSpeed} px/s`);
+    lines.push(`  Damage per hit: ${cfg.projectileDamage} HP`);
+    lines.push(`  Mana regen: ${cfg.manaRegenRate}/s`);
+  });
+  lines.push(`Round duration: ${config.roundDuration}s`);
+  lines.push(`Hitbox margin X: ${config.hitboxMarginX}`);
+  lines.push(`Hitbox margin Y: ${config.hitboxMarginY}`);
+  lines.push(`Front hit ratio: ${config.frontHitRatio}`);
   // Starting position for overlay (bottom‑left with a small margin)
   const margin = 20;
   const x = margin;
@@ -1059,15 +1166,27 @@ function drawHitboxes() {
   ctx.save();
   ctx.strokeStyle = 'rgba(0,255,0,0.7)';
   ctx.lineWidth   = 2;
-  // Draw player hitboxes
+  // Draw player hitboxes.  These boxes are restricted to the
+  // forward-facing portion of the sprite, as defined by FRONT_HIT_RATIO.
   for (const p of players) {
-    const marginX = p.width * HITBOX_MARGIN_X_RATIO;
-    const marginY = p.height * HITBOX_MARGIN_Y_RATIO;
-    const x = p.x + marginX;
-    const y = p.y + marginY;
-    const w = p.width - marginX * 2;
-    const h = p.height - marginY * 2;
-    ctx.strokeRect(x, y, w, h);
+    const marginX = p.width * config.hitboxMarginX;
+    const marginY = p.height * config.hitboxMarginY;
+    // Determine forward region based on facing direction
+    let fx1, fx2;
+    if (p.direction === 1) {
+      fx1 = p.x + p.width * (1 - config.frontHitRatio);
+      fx2 = p.x + p.width;
+    } else {
+      fx1 = p.x;
+      fx2 = p.x + p.width * config.frontHitRatio;
+    }
+    const px1 = Math.max(fx1 + marginX, p.x + marginX);
+    const px2 = Math.min(fx2 - marginX, p.x + p.width - marginX);
+    const py1 = p.y + marginY;
+    const py2 = p.y + p.height - marginY;
+    const w = px2 - px1;
+    const h = py2 - py1;
+    ctx.strokeRect(px1, py1, w, h);
   }
   // Draw projectile bounding circles
   for (const proj of projectiles) {
@@ -1087,80 +1206,166 @@ function drawHitboxes() {
  * building for production) the function exits without doing anything.
  */
 function initDebugControls() {
-  const jumpCostInput        = document.getElementById('debug-jump-cost');
-  const jumpVelocityInput    = document.getElementById('debug-jump-velocity');
-  const fireCostInput        = document.getElementById('debug-fire-cost');
-  const projSpeedInput       = document.getElementById('debug-projectile-speed');
-  const projDamageInput      = document.getElementById('debug-projectile-damage');
-  const manaRegenInput       = document.getElementById('debug-mana-regen');
-  const roundDurationInput   = document.getElementById('debug-round-duration');
-  const saveDefaultsBtn      = document.getElementById('debug-save-defaults');
-  const resetDefaultsBtn     = document.getElementById('debug-reset-defaults');
-  // If any of the inputs are missing we assume the panel is not present
-  if (!jumpCostInput || !jumpVelocityInput || !fireCostInput ||
-      !projSpeedInput || !projDamageInput || !manaRegenInput ||
-      !roundDurationInput || !saveDefaultsBtn || !resetDefaultsBtn) {
-    return;
+  // Gather references to all debug inputs.  Because the debug panel
+  // includes many fields we destructure them here for clarity.  If any
+  // element is missing we assume the panel is absent and abort early.
+  const refs = {
+    pauseBtn: document.getElementById('debug-pause-btn'),
+    // Player 1 fields
+    p1JumpCost: document.getElementById('debug-p1-jump-cost'),
+    p1JumpVel: document.getElementById('debug-p1-jump-velocity'),
+    p1FireCost: document.getElementById('debug-p1-fire-cost'),
+    p1FireCooldown: document.getElementById('debug-p1-fire-cooldown'),
+    p1ProjSpeed: document.getElementById('debug-p1-projectile-speed'),
+    p1ProjDamage: document.getElementById('debug-p1-projectile-damage'),
+    p1ManaRegen: document.getElementById('debug-p1-mana-regen'),
+    // Player 2 fields
+    p2JumpCost: document.getElementById('debug-p2-jump-cost'),
+    p2JumpVel: document.getElementById('debug-p2-jump-velocity'),
+    p2FireCost: document.getElementById('debug-p2-fire-cost'),
+    p2FireCooldown: document.getElementById('debug-p2-fire-cooldown'),
+    p2ProjSpeed: document.getElementById('debug-p2-projectile-speed'),
+    p2ProjDamage: document.getElementById('debug-p2-projectile-damage'),
+    p2ManaRegen: document.getElementById('debug-p2-mana-regen'),
+    // Global fields
+    roundDuration: document.getElementById('debug-round-duration'),
+    hitboxMarginX: document.getElementById('debug-hitbox-margin-x'),
+    hitboxMarginY: document.getElementById('debug-hitbox-margin-y'),
+    frontRatio: document.getElementById('debug-front-ratio'),
+    // Defaults buttons
+    saveDefaultsBtn: document.getElementById('debug-save-defaults'),
+    resetDefaultsBtn: document.getElementById('debug-reset-defaults')
+  };
+  // If any required input is missing bail out
+  for (const key in refs) {
+    if (!refs[key]) return;
   }
-  // Populate initial values from config.  Note that jump velocity is
-  // displayed as a positive number for ease of editing; internally it is
-  // stored as a negative value to reflect upward motion.
-  jumpCostInput.value     = config.jumpCost;
-  jumpVelocityInput.value = Math.abs(config.jumpVelocity);
-  fireCostInput.value     = config.fireCost;
-  projSpeedInput.value    = config.projectileSpeed;
-  projDamageInput.value   = config.projectileDamage;
-  manaRegenInput.value    = config.manaRegenRate;
-  roundDurationInput.value= config.roundDuration;
-  // Attach listeners to update config when changed
-  jumpCostInput.addEventListener('input', () => {
-    const val = parseFloat(jumpCostInput.value);
-    if (!isNaN(val)) config.jumpCost = val;
+  // Helper to set all input values based on the current config state
+  function populateInputs() {
+    // Player 1
+    refs.p1JumpCost.value    = config.p1.jumpCost;
+    refs.p1JumpVel.value     = Math.abs(config.p1.jumpVelocity);
+    refs.p1FireCost.value    = config.p1.fireCost;
+    refs.p1FireCooldown.value= config.p1.fireCooldown;
+    refs.p1ProjSpeed.value   = config.p1.projectileSpeed;
+    refs.p1ProjDamage.value  = config.p1.projectileDamage;
+    refs.p1ManaRegen.value   = config.p1.manaRegenRate;
+    // Player 2
+    refs.p2JumpCost.value    = config.p2.jumpCost;
+    refs.p2JumpVel.value     = Math.abs(config.p2.jumpVelocity);
+    refs.p2FireCost.value    = config.p2.fireCost;
+    refs.p2FireCooldown.value= config.p2.fireCooldown;
+    refs.p2ProjSpeed.value   = config.p2.projectileSpeed;
+    refs.p2ProjDamage.value  = config.p2.projectileDamage;
+    refs.p2ManaRegen.value   = config.p2.manaRegenRate;
+    // Global
+    refs.roundDuration.value  = config.roundDuration;
+    refs.hitboxMarginX.value  = config.hitboxMarginX;
+    refs.hitboxMarginY.value  = config.hitboxMarginY;
+    refs.frontRatio.value     = config.frontHitRatio;
+    // Pause button text
+    refs.pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  }
+  // Initialise all inputs
+  populateInputs();
+  // Event listeners for pause/resume.  Toggling pause will update the
+  // button label accordingly.  Pausing simply prevents the world from
+  // updating; drawing continues so testers can still see the scene.
+  refs.pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    refs.pauseBtn.textContent = paused ? 'Resume' : 'Pause';
   });
-  jumpVelocityInput.addEventListener('input', () => {
-    const val = parseFloat(jumpVelocityInput.value);
-    if (!isNaN(val)) config.jumpVelocity = -Math.abs(val);
+  // Player 1 listeners
+  refs.p1JumpCost.addEventListener('input', () => {
+    const val = parseFloat(refs.p1JumpCost.value);
+    if (!isNaN(val)) config.p1.jumpCost = val;
   });
-  fireCostInput.addEventListener('input', () => {
-    const val = parseFloat(fireCostInput.value);
-    if (!isNaN(val)) config.fireCost = val;
+  refs.p1JumpVel.addEventListener('input', () => {
+    const val = parseFloat(refs.p1JumpVel.value);
+    if (!isNaN(val)) config.p1.jumpVelocity = -Math.abs(val);
   });
-  projSpeedInput.addEventListener('input', () => {
-    const val = parseFloat(projSpeedInput.value);
-    if (!isNaN(val)) config.projectileSpeed = val;
+  refs.p1FireCost.addEventListener('input', () => {
+    const val = parseFloat(refs.p1FireCost.value);
+    if (!isNaN(val)) config.p1.fireCost = val;
   });
-  projDamageInput.addEventListener('input', () => {
-    const val = parseFloat(projDamageInput.value);
-    if (!isNaN(val)) config.projectileDamage = val;
+  refs.p1FireCooldown.addEventListener('input', () => {
+    const val = parseFloat(refs.p1FireCooldown.value);
+    if (!isNaN(val) && val >= 0) config.p1.fireCooldown = val;
   });
-  manaRegenInput.addEventListener('input', () => {
-    const val = parseFloat(manaRegenInput.value);
-    if (!isNaN(val)) config.manaRegenRate = val;
+  refs.p1ProjSpeed.addEventListener('input', () => {
+    const val = parseFloat(refs.p1ProjSpeed.value);
+    if (!isNaN(val)) config.p1.projectileSpeed = val;
   });
-
-  // Update the round duration when the input changes.  Round duration must be
-  // positive.  Values are interpreted as seconds.
-  roundDurationInput.addEventListener('input', () => {
-    const val = parseFloat(roundDurationInput.value);
+  refs.p1ProjDamage.addEventListener('input', () => {
+    const val = parseFloat(refs.p1ProjDamage.value);
+    if (!isNaN(val)) config.p1.projectileDamage = val;
+  });
+  refs.p1ManaRegen.addEventListener('input', () => {
+    const val = parseFloat(refs.p1ManaRegen.value);
+    if (!isNaN(val)) config.p1.manaRegenRate = val;
+  });
+  // Player 2 listeners
+  refs.p2JumpCost.addEventListener('input', () => {
+    const val = parseFloat(refs.p2JumpCost.value);
+    if (!isNaN(val)) config.p2.jumpCost = val;
+  });
+  refs.p2JumpVel.addEventListener('input', () => {
+    const val = parseFloat(refs.p2JumpVel.value);
+    if (!isNaN(val)) config.p2.jumpVelocity = -Math.abs(val);
+  });
+  refs.p2FireCost.addEventListener('input', () => {
+    const val = parseFloat(refs.p2FireCost.value);
+    if (!isNaN(val)) config.p2.fireCost = val;
+  });
+  refs.p2FireCooldown.addEventListener('input', () => {
+    const val = parseFloat(refs.p2FireCooldown.value);
+    if (!isNaN(val) && val >= 0) config.p2.fireCooldown = val;
+  });
+  refs.p2ProjSpeed.addEventListener('input', () => {
+    const val = parseFloat(refs.p2ProjSpeed.value);
+    if (!isNaN(val)) config.p2.projectileSpeed = val;
+  });
+  refs.p2ProjDamage.addEventListener('input', () => {
+    const val = parseFloat(refs.p2ProjDamage.value);
+    if (!isNaN(val)) config.p2.projectileDamage = val;
+  });
+  refs.p2ManaRegen.addEventListener('input', () => {
+    const val = parseFloat(refs.p2ManaRegen.value);
+    if (!isNaN(val)) config.p2.manaRegenRate = val;
+  });
+  // Global listeners
+  refs.roundDuration.addEventListener('input', () => {
+    const val = parseFloat(refs.roundDuration.value);
     if (!isNaN(val) && val > 0) config.roundDuration = val;
   });
-
-  // When "Update defaults" is clicked copy the current config values into
-  // defaultConfig so that future resets revert to these settings.
-  saveDefaultsBtn.addEventListener('click', () => {
-    defaultConfig = { ...config };
+  refs.hitboxMarginX.addEventListener('input', () => {
+    const val = parseFloat(refs.hitboxMarginX.value);
+    if (!isNaN(val) && val >= 0) config.hitboxMarginX = val;
   });
-
-  // When "Reset defaults" is clicked restore the config values from
-  // defaultConfig and update all inputs to reflect the restored settings.
-  resetDefaultsBtn.addEventListener('click', () => {
-    Object.assign(config, defaultConfig);
-    jumpCostInput.value      = config.jumpCost;
-    jumpVelocityInput.value  = Math.abs(config.jumpVelocity);
-    fireCostInput.value      = config.fireCost;
-    projSpeedInput.value     = config.projectileSpeed;
-    projDamageInput.value    = config.projectileDamage;
-    manaRegenInput.value     = config.manaRegenRate;
-    roundDurationInput.value = config.roundDuration;
+  refs.hitboxMarginY.addEventListener('input', () => {
+    const val = parseFloat(refs.hitboxMarginY.value);
+    if (!isNaN(val) && val >= 0) config.hitboxMarginY = val;
+  });
+  refs.frontRatio.addEventListener('input', () => {
+    const val = parseFloat(refs.frontRatio.value);
+    if (!isNaN(val) && val >= 0 && val <= 1) config.frontHitRatio = val;
+  });
+  // Defaults buttons
+  refs.saveDefaultsBtn.addEventListener('click', () => {
+    defaultConfig = JSON.parse(JSON.stringify(config));
+  });
+  refs.resetDefaultsBtn.addEventListener('click', () => {
+    // Deep copy of defaults back into config
+    config.p1 = { ...defaultConfig.p1 };
+    config.p2 = { ...defaultConfig.p2 };
+    config.roundDuration  = defaultConfig.roundDuration;
+    config.hitboxMarginX  = defaultConfig.hitboxMarginX;
+    config.hitboxMarginY  = defaultConfig.hitboxMarginY;
+    config.frontHitRatio  = defaultConfig.frontHitRatio;
+    // Also copy nested objects again to avoid reference sharing
+    config.p1 = { ...defaultConfig.p1 };
+    config.p2 = { ...defaultConfig.p2 };
+    // Refresh inputs to reflect restored values and button label
+    populateInputs();
   });
 }

@@ -13,47 +13,47 @@
   <!-- Game logic -->
   <script src="script.js"></script>
 
-  <!-- Debug control panel.  When developing or tuning the game you can adjust
-       key parameters using the inputs below.  Each control is wired up in
-       script.js to update the corresponding field on the global `config`
-       object.  This panel can be hidden in production by setting a CSS
-       display:none on #debug-panel or by removing it entirely. -->
-  <div id="debug-panel" style="position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:6px; color:#fff; font-family:sans-serif; font-size:14px; z-index:1000;">
-    <div style="margin-bottom:4px; font-weight:bold;">Debug Controls</div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-jump-cost">Jump cost:</label>
-      <input type="number" id="debug-jump-cost" min="0" max="100" step="1" style="width:60px;" />
+  <!-- Debug control panel.  This panel exposes per‑player and global
+       parameters so that testers can tune the gameplay in real time.  It
+       includes a pause/resume button, fields for each character, global
+       collision settings, and buttons to update/reset defaults. -->
+  <div id="debug-panel" style="position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:6px; color:#fff; font-family:sans-serif; font-size:14px; z-index:1000; max-width:420px;">
+    <div style="font-weight:bold; margin-bottom:4px;">Debug Controls</div>
+    <!-- Pause/resume button -->
+    <div style="margin-bottom:6px;">
+      <button id="debug-pause-btn" style="padding:2px 8px; font-size:12px;">Pause</button>
     </div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-jump-velocity">Jump velocity:</label>
-      <input type="number" id="debug-jump-velocity" min="1" max="100" step="1" style="width:60px;" />
+    <!-- Per‑player parameter controls -->
+    <div style="display:flex; justify-content:space-between; gap:10px;">
+      <div style="flex:1;">
+        <div style="font-weight:bold; margin-bottom:2px;">Player 1</div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-jump-cost">Jump cost:</label> <input type="number" id="debug-p1-jump-cost" min="0" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-jump-velocity">Jump velocity:</label> <input type="number" id="debug-p1-jump-velocity" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-fire-cost">Fire cost:</label> <input type="number" id="debug-p1-fire-cost" min="0" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p1-fire-cooldown" min="0" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-projectile-speed">Proj speed:</label> <input type="number" id="debug-p1-projectile-speed" min="50" max="2000" step="10" style="width:70px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-projectile-damage">Proj damage:</label> <input type="number" id="debug-p1-projectile-damage" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-mana-regen">Mana regen:</label> <input type="number" id="debug-p1-mana-regen" min="1" max="100" step="1" style="width:60px;"></div>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:bold; margin-bottom:2px;">Player 2</div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-jump-cost">Jump cost:</label> <input type="number" id="debug-p2-jump-cost" min="0" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-jump-velocity">Jump velocity:</label> <input type="number" id="debug-p2-jump-velocity" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-fire-cost">Fire cost:</label> <input type="number" id="debug-p2-fire-cost" min="0" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p2-fire-cooldown" min="0" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-projectile-speed">Proj speed:</label> <input type="number" id="debug-p2-projectile-speed" min="50" max="2000" step="10" style="width:70px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-projectile-damage">Proj damage:</label> <input type="number" id="debug-p2-projectile-damage" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-mana-regen">Mana regen:</label> <input type="number" id="debug-p2-mana-regen" min="1" max="100" step="1" style="width:60px;"></div>
+      </div>
     </div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-fire-cost">Fire cost:</label>
-      <input type="number" id="debug-fire-cost" min="0" max="100" step="1" style="width:60px;" />
+    <!-- Global settings -->
+    <div style="margin-top:6px;">
+      <div style="margin-bottom:2px;"><label for="debug-round-duration">Round duration:</label> <input type="number" id="debug-round-duration" min="10" max="300" step="5" style="width:70px;"></div>
+      <div style="margin-bottom:2px;"><label for="debug-hitbox-margin-x">Hitbox margin X:</label> <input type="number" id="debug-hitbox-margin-x" min="0" max="0.5" step="0.01" style="width:60px;"></div>
+      <div style="margin-bottom:2px;"><label for="debug-hitbox-margin-y">Hitbox margin Y:</label> <input type="number" id="debug-hitbox-margin-y" min="0" max="0.5" step="0.01" style="width:60px;"></div>
+      <div style="margin-bottom:2px;"><label for="debug-front-ratio">Front hit ratio:</label> <input type="number" id="debug-front-ratio" min="0" max="1" step="0.05" style="width:60px;"></div>
     </div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-projectile-speed">Projectile speed:</label>
-      <input type="number" id="debug-projectile-speed" min="50" max="2000" step="10" style="width:70px;" />
-    </div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-projectile-damage">Projectile damage:</label>
-      <input type="number" id="debug-projectile-damage" min="1" max="100" step="1" style="width:60px;" />
-    </div>
-    <div style="margin-bottom:4px;">
-      <label for="debug-mana-regen">Mana regen:</label>
-      <input type="number" id="debug-mana-regen" min="1" max="100" step="1" style="width:60px;" />
-    </div>
-    <!-- Control for adjusting the round duration.  Changing this value will
-         modify how long each round lasts before the timer expires. -->
-    <div style="margin-bottom:4px;">
-      <label for="debug-round-duration">Round duration:</label>
-      <input type="number" id="debug-round-duration" min="10" max="300" step="5" style="width:70px;" />
-    </div>
-    <!-- Buttons to update or reset the default configuration.  "Update defaults"
-         copies the current settings into the baseline so that future resets
-         return to these values.  "Reset defaults" restores the baseline
-         values immediately. -->
+    <!-- Buttons to update or reset the default configuration -->
     <div style="margin-top:6px;">
       <button id="debug-save-defaults" style="margin-right:4px; padding:2px 6px; font-size:12px;">Update defaults</button>
       <button id="debug-reset-defaults" style="padding:2px 6px; font-size:12px;">Reset defaults</button>
