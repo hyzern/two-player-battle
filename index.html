@@ -12,5 +12,38 @@
 
   <!-- Game logic -->
   <script src="script.js"></script>
+
+  <!-- Debug control panel.  When developing or tuning the game you can adjust
+       key parameters using the inputs below.  Each control is wired up in
+       script.js to update the corresponding field on the global `config`
+       object.  This panel can be hidden in production by setting a CSS
+       display:none on #debug-panel or by removing it entirely. -->
+  <div id="debug-panel" style="position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:6px; color:#fff; font-family:sans-serif; font-size:14px; z-index:1000;">
+    <div style="margin-bottom:4px; font-weight:bold;">Debug Controls</div>
+    <div style="margin-bottom:4px;">
+      <label for="debug-jump-cost">Jump cost:</label>
+      <input type="number" id="debug-jump-cost" min="0" max="100" step="1" style="width:60px;" />
+    </div>
+    <div style="margin-bottom:4px;">
+      <label for="debug-jump-velocity">Jump velocity:</label>
+      <input type="number" id="debug-jump-velocity" min="1" max="100" step="1" style="width:60px;" />
+    </div>
+    <div style="margin-bottom:4px;">
+      <label for="debug-fire-cost">Fire cost:</label>
+      <input type="number" id="debug-fire-cost" min="0" max="100" step="1" style="width:60px;" />
+    </div>
+    <div style="margin-bottom:4px;">
+      <label for="debug-projectile-speed">Projectile speed:</label>
+      <input type="number" id="debug-projectile-speed" min="50" max="2000" step="10" style="width:70px;" />
+    </div>
+    <div style="margin-bottom:4px;">
+      <label for="debug-projectile-damage">Projectile damage:</label>
+      <input type="number" id="debug-projectile-damage" min="1" max="100" step="1" style="width:60px;" />
+    </div>
+    <div>
+      <label for="debug-mana-regen">Mana regen:</label>
+      <input type="number" id="debug-mana-regen" min="1" max="100" step="1" style="width:60px;" />
+    </div>
+  </div>
 </body>
 </html>

@@ -77,11 +77,12 @@ class Player {
    * sufficient mana is available.
    */
   jump() {
-    const jumpCost    = 10;
-    const jumpVelocity = -15; // upward impulse (negative vy moves up)
-    if (this.vy === 0 && this.mana >= jumpCost) {
-      this.vy = jumpVelocity;
-      this.mana -= jumpCost;
+    // Use configured cost and velocity so these values can be tweaked via the
+    // debug controls.  The negative sign on jumpVelocity in config indicates
+    // upward motion.
+    if (this.vy === 0 && this.mana >= config.jumpCost) {
+      this.vy = config.jumpVelocity;
+      this.mana -= config.jumpCost;
       // Play a short jump sound (slightly higher pitch)
       playTone(523.25, 0.05, 'triangle');
     }
@@ -91,9 +92,10 @@ class Player {
    * is available.  The projectile direction is determined by this.direction.
    */
   fire() {
-    const fireCost = 20;
-    if (this.mana >= fireCost) {
-      this.mana -= fireCost;
+    // Use configured mana cost for firing so it can be adjusted via the
+    // debug controls.
+    if (this.mana >= config.fireCost) {
+      this.mana -= config.fireCost;
       // Spawn the projectile at roughly mid‑height of the sprite
       const spawnY = this.y + this.height * 0.5;
       const spawnX = this.direction === 1 ? this.x + this.width : this.x;
@@ -118,7 +120,9 @@ class Projectile {
     this.dir = dir;
     this.owner = owner;
     this.radius = 8;
-    this.speed = 600; // pixels per second
+    // Use speed from the global config so projectile velocity can be adjusted
+    // dynamically via the debug panel.
+    this.speed = config.projectileSpeed;
   }
   update(delta) {
     this.x += this.dir * this.speed * delta;
@@ -271,9 +275,28 @@ function resumeAudio() {
 // Constants controlling game mechanics
 const MAX_HP    = 100;
 const MAX_MANA  = 100;
-const MANA_REGEN_RATE = 20; // mana points regenerated per second
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
 const ROUND_DURATION = 60; // seconds per round
+
+// Tunable gameplay parameters.  These values are used throughout the
+// movement, attack and resource mechanics.  They are grouped in a single
+// object so that they can be changed at runtime via the debug panel without
+// needing to reassign constants.  Each property corresponds to a field
+// adjustable in the on‑screen debug UI.
+const config = {
+  // Mana consumed per jump
+  jumpCost: 10,
+  // Upward velocity applied when jumping (negative is up)
+  jumpVelocity: -15,
+  // Mana consumed per projectile fired
+  fireCost: 20,
+  // Horizontal speed of projectiles (pixels per second)
+  projectileSpeed: 600,
+  // Hit point damage dealt when a projectile collides with a player
+  projectileDamage: 15,
+  // Mana points regenerated per second
+  manaRegenRate: 20
+};
 
 // -----------------------------------------------------------------------------
 // Debugging configuration.  When SHOW_DEBUG is true a small overlay is drawn
@@ -281,17 +304,11 @@ const ROUND_DURATION = 60; // seconds per round
 // extracted from constants defined in this file.  Toggling this flag makes it
 // easy to enable/disable the overlay for development and then hide it in
 // production.
-const SHOW_DEBUG = true;
+const SHOW_DEBUG = false;
 
-// Gameplay constants used for the debug overlay.  The values here mirror
-// numbers used throughout the game logic.  Should you tweak jump cost,
-// projectile speed or damage in future, update these definitions so the
-// overlay remains accurate.
-const JUMP_COST        = 10;
-const JUMP_VELOCITY    = -15;
-const FIRE_COST        = 20;
-const PROJECTILE_SPEED = 600;
-const PROJECTILE_DAMAGE = 15;
+// Gameplay constants for the debug overlay have been superseded by the
+// `config` object.  When SHOW_DEBUG is true, the overlay will read
+// dynamically from config rather than these legacy definitions.
 
 /**
  * Compute a colour for the health bar based on the current health ratio.
@@ -421,6 +438,12 @@ function init() {
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
 
+  // Initialise the debug control inputs after all other listeners are set up.
+  // This reads current values from the config object and updates them when
+  // the user interacts with the debug panel.  If the elements are not
+  // present (e.g. in production), the helper will simply return.
+  initDebugControls();
+
   // Generate a star field once.  Stars twinkle over time by modulating
   // their alpha values.  We regenerate when the canvas size changes.
   stars = [];
@@ -543,7 +566,7 @@ function updateWorld(delta) {
   // Update players: apply gravity, update vertical position, regen mana
   for (const p of players) {
     // Mana regeneration capped at MAX_MANA
-    p.mana = Math.min(MAX_MANA, p.mana + MANA_REGEN_RATE * delta);
+        p.mana = Math.min(MAX_MANA, p.mana + config.manaRegenRate * delta);
     // Apply gravity
     if (p.vy !== 0 || p.y < p.startY) {
       p.vy += GRAVITY * delta;
@@ -567,7 +590,8 @@ function updateWorld(delta) {
     for (const p of players) {
       if (p !== proj.owner && p.hp > 0 && proj.collides(p)) {
         // Collision!  Reduce target health and remove projectile
-        p.hp -= 15;
+        // Apply configurable damage when a projectile hits a player
+        p.hp -= config.projectileDamage;
         // Spawn explosion particles at impact point.  Colour reflects
         // which player fired the projectile.
         const colour = (proj.owner === players[0]) ? '#ffd85b' : '#ff5b5b';
@@ -962,12 +986,12 @@ function drawDebugInfo() {
   // indicates direction in code (negative for upward).  If you adjust any of
   // these values in the logic, update the corresponding constant above.
   const lines = [
-    `Jump cost: ${JUMP_COST} mana`,
-    `Jump velocity: ${Math.abs(JUMP_VELOCITY)} px/s`,
-    `Fire cost: ${FIRE_COST} mana`,
-    `Projectile speed: ${PROJECTILE_SPEED} px/s`,
-    `Damage per hit: ${PROJECTILE_DAMAGE} HP`,
-    `Mana regen: ${MANA_REGEN_RATE}/s`,
+    `Jump cost: ${config.jumpCost} mana`,
+    `Jump velocity: ${Math.abs(config.jumpVelocity)} px/s`,
+    `Fire cost: ${config.fireCost} mana`,
+    `Projectile speed: ${config.projectileSpeed} px/s`,
+    `Damage per hit: ${config.projectileDamage} HP`,
+    `Mana regen: ${config.manaRegenRate}/s`,
     `Max HP: ${MAX_HP}, Max mana: ${MAX_MANA}`,
     `Round duration: ${ROUND_DURATION}s`
   ];
@@ -985,4 +1009,60 @@ function drawDebugInfo() {
     y += 16;
   }
   ctx.restore();
+}
+
+/**
+ * Initialise the debug control inputs.  This helper queries the DOM for
+ * elements with ids matching the debug fields and populates them with the
+ * current values from the `config` object.  It attaches `input` event
+ * listeners to update the config properties whenever the user changes the
+ * value.  When the debug panel is not present in the DOM (e.g. when
+ * building for production) the function exits without doing anything.
+ */
+function initDebugControls() {
+  const jumpCostInput        = document.getElementById('debug-jump-cost');
+  const jumpVelocityInput    = document.getElementById('debug-jump-velocity');
+  const fireCostInput        = document.getElementById('debug-fire-cost');
+  const projSpeedInput       = document.getElementById('debug-projectile-speed');
+  const projDamageInput      = document.getElementById('debug-projectile-damage');
+  const manaRegenInput       = document.getElementById('debug-mana-regen');
+  // If any of the inputs are missing we assume the panel is not present
+  if (!jumpCostInput || !jumpVelocityInput || !fireCostInput ||
+      !projSpeedInput || !projDamageInput || !manaRegenInput) {
+    return;
+  }
+  // Populate initial values from config.  Note that jump velocity is
+  // displayed as a positive number for ease of editing; internally it is
+  // stored as a negative value to reflect upward motion.
+  jumpCostInput.value     = config.jumpCost;
+  jumpVelocityInput.value = Math.abs(config.jumpVelocity);
+  fireCostInput.value     = config.fireCost;
+  projSpeedInput.value    = config.projectileSpeed;
+  projDamageInput.value   = config.projectileDamage;
+  manaRegenInput.value    = config.manaRegenRate;
+  // Attach listeners to update config when changed
+  jumpCostInput.addEventListener('input', () => {
+    const val = parseFloat(jumpCostInput.value);
+    if (!isNaN(val)) config.jumpCost = val;
+  });
+  jumpVelocityInput.addEventListener('input', () => {
+    const val = parseFloat(jumpVelocityInput.value);
+    if (!isNaN(val)) config.jumpVelocity = -Math.abs(val);
+  });
+  fireCostInput.addEventListener('input', () => {
+    const val = parseFloat(fireCostInput.value);
+    if (!isNaN(val)) config.fireCost = val;
+  });
+  projSpeedInput.addEventListener('input', () => {
+    const val = parseFloat(projSpeedInput.value);
+    if (!isNaN(val)) config.projectileSpeed = val;
+  });
+  projDamageInput.addEventListener('input', () => {
+    const val = parseFloat(projDamageInput.value);
+    if (!isNaN(val)) config.projectileDamage = val;
+  });
+  manaRegenInput.addEventListener('input', () => {
+    const val = parseFloat(manaRegenInput.value);
+    if (!isNaN(val)) config.manaRegenRate = val;
+  });
 }
