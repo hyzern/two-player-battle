@@ -10,6 +10,33 @@
   <!-- The game will be rendered inside this canvas -->
   <canvas id="gameCanvas" width="1280" height="720"></canvas>
 
+  <!-- Character selection overlay.  This overlay appears before the game
+       starts and lets the user pick which character to play.  It shows
+       large portraits for Rudo Ben, Cenno Kio and Vian Naru.  Clicking
+       a portrait selects that hero for Player 1; the AI will choose
+       randomly from the remaining two.  Once a hero is selected the
+       "Start" button becomes enabled.  The overlay covers the canvas
+       and uses a dark translucent background to focus attention on
+       the choices. -->
+  <div id="character-select-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2000; color:#fff; font-family:sans-serif;">
+    <h2 style="margin-bottom:20px; font-size:32px;">Choose Your Champion</h2>
+    <div style="display:flex; gap:40px;">
+      <div class="character-option" data-char="rudo" style="text-align:center; cursor:pointer;">
+        <img src="rudo ben 123.png" alt="Rudo Ben" style="width:200px; height:200px; border-radius:10px; object-fit:contain; border:4px solid transparent;" />
+        <div style="margin-top:8px; font-size:20px; color:#ff5533;">Rudo Ben</div>
+      </div>
+      <div class="character-option" data-char="cenno" style="text-align:center; cursor:pointer;">
+        <img src="Cenno Kio123.png" alt="Cenno Kio" style="width:200px; height:200px; border-radius:10px; object-fit:contain; border:4px solid transparent;" />
+        <div style="margin-top:8px; font-size:20px; color:#a055ff;">Cenno Kio</div>
+      </div>
+      <div class="character-option" data-char="vian" style="text-align:center; cursor:pointer;">
+        <img src="Vian Naru 123.png" alt="Vian Naru" style="width:200px; height:200px; border-radius:10px; object-fit:contain; border:4px solid transparent;" />
+        <div style="margin-top:8px; font-size:20px; color:#44cc66;">Vian Naru</div>
+      </div>
+    </div>
+    <button id="start-game-btn" disabled style="margin-top:30px; padding:10px 20px; font-size:18px; background:#2196f3; color:#fff; border:none; border-radius:4px; cursor:pointer; opacity:0.5;">Start Game</button>
+  </div>
+
   <!-- Game logic -->
   <script src="script.js"></script>
 
@@ -17,7 +44,10 @@
        parameters so that testers can tune the gameplay in real time.  It
        includes a pause/resume button, fields for each character, global
        collision settings, and buttons to update/reset defaults. -->
-  <div id="debug-panel" style="position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:6px; color:#fff; font-family:sans-serif; font-size:14px; z-index:1000; max-width:420px;">
+  <!-- Debug/settings panel.  This panel is hidden by default and is
+       displayed when the game is paused.  It provides runtime tuning
+       controls for each character and global settings. -->
+  <div id="debug-panel" style="display:none; position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:6px; color:#fff; font-family:sans-serif; font-size:14px; z-index:1000; max-width:420px;">
     <div style="font-weight:bold; margin-bottom:4px;">Debug Controls</div>
     <!-- Pause/resume button -->
     <div style="margin-bottom:6px;">
@@ -27,23 +57,21 @@
     <div style="display:flex; justify-content:space-between; gap:10px;">
       <div style="flex:1;">
         <div style="font-weight:bold; margin-bottom:2px;">Player 1</div>
-        <div style="margin-bottom:2px;"><label for="debug-p1-jump-cost">Jump cost:</label> <input type="number" id="debug-p1-jump-cost" min="0" max="100" step="1" style="width:60px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p1-jump-velocity">Jump velocity:</label> <input type="number" id="debug-p1-jump-velocity" min="1" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p1-fire-cost">Fire cost:</label> <input type="number" id="debug-p1-fire-cost" min="0" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p1-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p1-fire-cooldown" min="0" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-jump-cooldown">Jump cooldown:</label> <input type="number" id="debug-p1-jump-cooldown" min="0.5" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p1-fire-cooldown" min="0" max="5" step="0.05" style="width:60px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p1-projectile-speed">Proj speed:</label> <input type="number" id="debug-p1-projectile-speed" min="50" max="2000" step="10" style="width:70px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p1-projectile-damage">Proj damage:</label> <input type="number" id="debug-p1-projectile-damage" min="1" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p1-mana-regen">Mana regen:</label> <input type="number" id="debug-p1-mana-regen" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p1-projectile-size">Proj size:</label> <input type="number" id="debug-p1-projectile-size" min="0.5" max="2" step="0.05" style="width:60px;"></div>
       </div>
       <div style="flex:1;">
         <div style="font-weight:bold; margin-bottom:2px;">Player 2</div>
-        <div style="margin-bottom:2px;"><label for="debug-p2-jump-cost">Jump cost:</label> <input type="number" id="debug-p2-jump-cost" min="0" max="100" step="1" style="width:60px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p2-jump-velocity">Jump velocity:</label> <input type="number" id="debug-p2-jump-velocity" min="1" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p2-fire-cost">Fire cost:</label> <input type="number" id="debug-p2-fire-cost" min="0" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p2-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p2-fire-cooldown" min="0" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-jump-cooldown">Jump cooldown:</label> <input type="number" id="debug-p2-jump-cooldown" min="0.5" max="5" step="0.1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-fire-cooldown">Fire cooldown:</label> <input type="number" id="debug-p2-fire-cooldown" min="0" max="5" step="0.05" style="width:60px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p2-projectile-speed">Proj speed:</label> <input type="number" id="debug-p2-projectile-speed" min="50" max="2000" step="10" style="width:70px;"></div>
         <div style="margin-bottom:2px;"><label for="debug-p2-projectile-damage">Proj damage:</label> <input type="number" id="debug-p2-projectile-damage" min="1" max="100" step="1" style="width:60px;"></div>
-        <div style="margin-bottom:2px;"><label for="debug-p2-mana-regen">Mana regen:</label> <input type="number" id="debug-p2-mana-regen" min="1" max="100" step="1" style="width:60px;"></div>
+        <div style="margin-bottom:2px;"><label for="debug-p2-projectile-size">Proj size:</label> <input type="number" id="debug-p2-projectile-size" min="0.5" max="2" step="0.05" style="width:60px;"></div>
       </div>
     </div>
     <!-- Global settings -->
@@ -71,5 +99,24 @@
       </select>
     </div>
   </div>
+
+  <!-- Loading screen overlay.  Displayed while assets are loading to
+       provide feedback to the player.  Once all images have loaded
+       this overlay fades out and interaction begins.  A simple
+       spinner animation is shown in the centre of the screen. -->
+  <div id="loading-screen" style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:5000; color:#fff; font-family:sans-serif;">
+    <div style="font-size:24px; margin-bottom:20px;">Loading…</div>
+    <div style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation: spin 1s linear infinite;"></div>
+  </div>
+
+  <!-- Spinner animation keyframes.  Defined here since the
+       debug panel styles are inline.  This spins the loading
+       indicator continuously. -->
+  <style>
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+  </style>
 </body>
 </html>

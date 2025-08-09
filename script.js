@@ -23,32 +23,120 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
 
-// Image assets.  These files are stored alongside this script.  When
-// developing your own game you can swap these files out to customise
-// the appearance.
-const imgJump    = new Image();
-const imgFire    = new Image();
-const imgPlayer1 = new Image();
-const imgPlayer2 = new Image();
+// Image assets used by the UI.  These files are stored alongside this
+// script.  Additional character portraits are loaded later as part
+// of the CHAR_DATA definition below.  We track the number of images
+// loaded so that the character selection overlay shows correct
+// images before the game begins.  Images do not automatically start
+// the game; the user selects a character first.
+const imgJump  = new Image();
+const imgFire  = new Image();
 imgJump.src    = 'jump button.png';
 imgFire.src    = 'fire button.png';
-imgPlayer1.src = 'Cenno Kio123.png';
-imgPlayer2.src = 'rudo ben 123.png';
 
-// Track how many images have loaded before starting the game
+// Track how many images have loaded.  When all required assets are
+// ready we enable the character selection screen.  The total count
+// will be updated after declaring the CHAR_DATA object.
 let imagesLoaded = 0;
+let totalImagesToLoad = 0;
 function onImageLoad() {
   imagesLoaded++;
-  // When all four images are ready we can start the game
-  if (imagesLoaded === 4) {
-    init();
+  // When all images have loaded and the character selection overlay
+  // exists we can enable interaction (handled in init()).
+  if (imagesLoaded === totalImagesToLoad) {
+    imagesReady = true;
+    // Hide the loading overlay now that all assets are ready.  We
+    // guard with a null check in case the element is not present.
+    const loading = document.getElementById('loading-screen');
+    if (loading) {
+      loading.style.display = 'none';
+    }
   }
 }
-imgJump.onload    = onImageLoad;
-imgFire.onload    = onImageLoad;
-imgPlayer1.onload = onImageLoad;
-imgPlayer2.onload = onImageLoad;
+imgJump.onload = onImageLoad;
+imgFire.onload = onImageLoad;
 
+// ---------------------------------------------------------------------
+// Character definitions and image assets.  Each playable hero is
+// described here with their name, portrait file and gameplay stats.
+// Stats are applied to the player when the character is selected.
+// Ultimate values come into play once the character's HP drops below
+// half; holding the fire button for the specified wind‑up launches
+// the ultimate.
+const CHAR_DATA = {
+  rudo: {
+    name: 'Rudo Ben',
+    file: 'rudo ben 123.png',
+    // Base movement/attack values
+    jumpVelocity: -900,     // Upwards jump velocity
+    fireCooldown: 0.50,     // Seconds between normal shots
+    projectileSpeed: 520,   // Pixels per second
+    projectileDamage: 16,
+    projectileSize: 1.0,
+    // Ultimate values
+    ultDamage: 44,
+    ultSpeed: 740,
+    ultWindup: 0.9,
+    ultSize: 1.0,
+    // Dodge/jump cooldown
+    jumpCooldown: 2.5,
+    // Defend durations (in seconds)
+    defendDuration: 1.0,
+    defendCooldown: 2.0
+  },
+  cenno: {
+    name: 'Cenno Kio',
+    file: 'Cenno Kio123.png',
+    jumpVelocity: -850,
+    fireCooldown: 0.35,
+    projectileSpeed: 440,
+    projectileDamage: 13,
+    projectileSize: 1.25,
+    ultDamage: 42,
+    ultSpeed: 640,
+    ultWindup: 1.1,
+    ultSize: 1.25,
+    jumpCooldown: 2.5,
+    defendDuration: 1.0,
+    defendCooldown: 2.0
+  },
+  vian: {
+    name: 'Vian Naru',
+    file: 'Vian Naru 123.png',
+    jumpVelocity: -900,
+    fireCooldown: 0.28,
+    projectileSpeed: 680,
+    projectileDamage: 12,
+    projectileSize: 0.9,
+    ultDamage: 41,
+    ultSpeed: 700,
+    ultWindup: 1.0,
+    ultSize: 0.9,
+    jumpCooldown: 2.0,
+    defendDuration: 1.0,
+    defendCooldown: 2.0
+  }
+};
+
+// Load character portraits.  Count them towards the total images to
+// load so that the character selection overlay only becomes active
+// after all portraits are ready.  Each portrait is stored on the
+// corresponding CHAR_DATA entry as `sprite`.
+for (const key of Object.keys(CHAR_DATA)) {
+  const img = new Image();
+  img.src = CHAR_DATA[key].file;
+  CHAR_DATA[key].sprite = img;
+  totalImagesToLoad++;
+  img.onload = onImageLoad;
+}
+// Also count jump and fire images in the total to load
+totalImagesToLoad += 2;
+
+// Once all images are ready this flag becomes true.  init() uses
+// it to enable the selection overlay.
+let imagesReady = false;
+
+// ---------------------------------------------------------------------
 // Player class.  Encapsulates the state and behaviour of each character.
 class Player {
   /**
@@ -58,26 +146,43 @@ class Player {
    * @param {HTMLImageElement} image Sprite used to draw this player
    * @param {number} direction +1 for projectiles moving right, −1 for left
    */
-  constructor(x, name, image, direction) {
+  constructor(x, name, image, direction, characterKey) {
+    // Horizontal and vertical positions
     this.x = x;
-    this.y = 0; // will be set when round resets
-    this.startY = 0; // ground level, set later
-    this.vy = 0; // vertical velocity
-    this.width  = 180; // width of the sprite when drawn
-    this.height = 220; // height of the sprite when drawn
-    this.name = name;
-    this.image = image;
+    this.y = 0;
+    this.startY = 0;
+    this.vy = 0;
+    // Visual dimensions.  These are overriden when drawing using
+    // character sprite sizes (the art is square-ish but scaled here).
+    this.width  = 180;
+    this.height = 220;
+    // Set the character definition.  The key refers to the entry in
+    // CHAR_DATA which contains stats and the sprite.
+    this.characterKey = characterKey;
+    const charDef = CHAR_DATA[characterKey];
+    this.name   = charDef.name;
+    this.image  = charDef.sprite;
     this.direction = direction;
-    this.hp   = 100;
-    this.mana = 100;
-    this.wins = 0;
-    // Cooldown timer preventing immediate successive shots.  When >0
-    // the player may not fire.  This is decremented each frame in
-    // updateWorld().  The initial value is zero so the player can fire
-    // immediately on round start.
+    // Stats and HP
+    this.maxHp = 100;
+    this.hp    = 100;
+    this.wins  = 0;
+    // Timers and state flags
     this.fireCooldownTimer = 0;
-    // Index of the player in the players array (0 or 1).  Assigned in
-    // init() after creation.
+    this.jumpCooldownTimer = 0;
+    this.defendTimer       = 0;
+    this.defendCooldownTimer = 0;
+    this.isDefending = false;
+    this.firePressed = false;
+    this.fireHoldTime = 0;
+    this.ultimateReady = false;
+    this.ultimateUsed  = false;
+    // When the player jumps they become invulnerable to ultimate
+    // projectiles for a short duration.  This timer counts down
+    // after a dodge and is used to implement the RPS logic where
+    // dodging beats ultimate attacks.  See updateWorld() for usage.
+    this.invulnerableTimer = 0;
+    // Assigned after player list creation
     this.index = 0;
   }
   /**
@@ -85,15 +190,26 @@ class Player {
    * sufficient mana is available.
    */
   jump() {
-    // Look up the configuration for this player.  Each player has their own
-    // tunable parameters stored under config.p1 or config.p2.  If the
-    // character is grounded and has sufficient mana, apply the jump
-    // velocity and deduct mana accordingly.
-    const cfg = this.index === 0 ? config.p1 : config.p2;
-    if (this.vy === 0 && this.mana >= cfg.jumpCost) {
-      this.vy = cfg.jumpVelocity;
-      this.mana -= cfg.jumpCost;
-      // Play a short jump sound (slightly higher pitch)
+    const stats = CHAR_DATA[this.characterKey];
+    // Determine configuration overrides for this player.  If a value
+    // exists in the per‑player config object use it; otherwise fall
+    // back to the character definition.  The index property is set
+    // after players are created (0 for Player 1, 1 for Player 2).
+    const cfgKey = 'p' + (this.index + 1);
+    const cfg = config[cfgKey] || {};
+    // Jump only if on the ground and the jump cooldown has expired
+    if (this.vy === 0 && this.jumpCooldownTimer <= 0) {
+      // Use override values if present
+      const jumpVel = (cfg.jumpVelocity !== undefined ? cfg.jumpVelocity : stats.jumpVelocity);
+      const jumpCd  = (cfg.jumpCooldown !== undefined ? cfg.jumpCooldown : stats.jumpCooldown);
+      this.vy = jumpVel;
+      this.jumpCooldownTimer = jumpCd;
+      // Set a brief invulnerability window so that jumping can dodge
+      // ultimate attacks.  Normal projectiles will still hit if
+      // timed correctly.  The duration here (0.3s) is tuned for
+      // responsiveness and can be adjusted via stats if desired.
+      this.invulnerableTimer = 0.3;
+      // Play a short jump sound
       playTone(523.25, 0.05, 'triangle');
     }
   }
@@ -102,18 +218,153 @@ class Player {
    * is available.  The projectile direction is determined by this.direction.
    */
   fire() {
-    const cfg = this.index === 0 ? config.p1 : config.p2;
-    // Cannot fire if mana is too low or still cooling down
-    if (this.mana >= cfg.fireCost && this.fireCooldownTimer <= 0) {
-      this.mana -= cfg.fireCost;
-      // Spawn the projectile at roughly mid‑height of the sprite
-      const spawnY = this.y + this.height * 0.5;
-      const spawnX = this.direction === 1 ? this.x + this.width : this.x;
-      projectiles.push(new Projectile(spawnX, spawnY, this.direction, this));
-      // Reset cooldown timer
-      this.fireCooldownTimer = cfg.fireCooldown;
-      // Play a firing sound (higher pitch)
-      playTone(659.25, 0.05, 'square');
+    // Old fire method retained for backward compatibility.  It simply
+    // calls fireNormal().  New logic is implemented in fireNormal()
+    // and fireUltimate().  External code should call startFire()
+    // followed by stopFire() instead of this method.
+    this.fireNormal();
+  }
+
+  /**
+   * Fire a normal projectile.  Uses the character's stats for speed,
+   * damage and size.  Enforces the fire cooldown.
+   */
+  fireNormal() {
+    const stats = CHAR_DATA[this.characterKey];
+    if (this.fireCooldownTimer > 0) return;
+    // Determine configuration overrides for this player
+    const cfgKey = 'p' + (this.index + 1);
+    const cfg = config[cfgKey] || {};
+    const speed  = (cfg.projectileSpeed  !== undefined ? cfg.projectileSpeed  : stats.projectileSpeed);
+    const damage = (cfg.projectileDamage !== undefined ? cfg.projectileDamage : stats.projectileDamage);
+    const size   = (cfg.projectileSize   !== undefined ? cfg.projectileSize   : stats.projectileSize);
+    const cooldown = (cfg.fireCooldown   !== undefined ? cfg.fireCooldown   : stats.fireCooldown);
+    const spawnY = this.y + this.height * 0.5;
+    const spawnX = this.direction === 1 ? this.x + this.width : this.x;
+    projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
+      speed: speed,
+      damage: damage,
+      size: size,
+      isUltimate: false,
+      linger: 0,
+      ghost: false,
+      delay: 0
+    }));
+    this.fireCooldownTimer = cooldown;
+    playTone(659.25, 0.05, 'square');
+  }
+
+  /**
+   * Launch the ultimate attack if ready.  Spawns different projectiles
+   * depending on the character.  After firing, the ultimate is no
+   * longer available for the remainder of the round.
+   */
+  fireUltimate() {
+    if (!this.ultimateReady || this.ultimateUsed) return;
+    const stats = CHAR_DATA[this.characterKey];
+    const spawnY = this.y + this.height * 0.5;
+    const spawnX = this.direction === 1 ? this.x + this.width : this.x;
+    if (this.characterKey === 'vian') {
+      const delay = 0.12;
+      for (let i = 0; i < 2; i++) {
+        projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
+          speed: stats.ultSpeed,
+          damage: 0,
+          size: stats.ultSize,
+          isUltimate: true,
+          linger: 0,
+          ghost: true,
+          delay: i * delay
+        }));
+      }
+      projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
+        speed: stats.ultSpeed,
+        damage: stats.ultDamage,
+        size: stats.ultSize,
+        isUltimate: true,
+        linger: 0,
+        ghost: false,
+        delay: 2 * delay
+      }));
+    } else if (this.characterKey === 'cenno') {
+      projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
+        speed: stats.ultSpeed,
+        damage: stats.ultDamage,
+        size: stats.ultSize,
+        isUltimate: true,
+        linger: 0.15,
+        ghost: false,
+        delay: 0
+      }));
+    } else {
+      // Rudo
+      projectiles.push(new Projectile(spawnX, spawnY, this.direction, this, {
+        speed: stats.ultSpeed,
+        damage: stats.ultDamage,
+        size: stats.ultSize,
+        isUltimate: true,
+        linger: 0,
+        ghost: false,
+        delay: 0
+      }));
+    }
+    this.ultimateUsed = true;
+    this.ultimateReady = false;
+    playTone(329.63, 0.1, 'sawtooth');
+  }
+
+  /**
+   * Begin holding the fire button.  This starts accumulating
+   * time to determine whether to fire an ultimate.
+   */
+  startFire() {
+    this.firePressed = true;
+    this.fireHoldTime = 0;
+  }
+
+  /**
+   * Stop holding the fire button.  Determines whether to fire
+   * a normal or ultimate projectile based on hold time and
+   * readiness.
+   */
+  stopFire() {
+    const stats = CHAR_DATA[this.characterKey];
+    if (this.firePressed) {
+      if (this.ultimateReady && !this.ultimateUsed && this.fireHoldTime >= stats.ultWindup) {
+        this.fireUltimate();
+      } else {
+        this.fireNormal();
+      }
+    }
+    this.firePressed = false;
+    this.fireHoldTime = 0;
+  }
+
+  /**
+   * Update timers controlling cooldowns and statuses.  Called each frame.
+   */
+  updateTimers(dt) {
+    const stats = CHAR_DATA[this.characterKey];
+    if (this.fireCooldownTimer > 0) this.fireCooldownTimer -= dt;
+    if (this.jumpCooldownTimer > 0) this.jumpCooldownTimer -= dt;
+    if (this.defendCooldownTimer > 0) this.defendCooldownTimer -= dt;
+    if (this.firePressed) this.fireHoldTime += dt;
+    if (this.isDefending) {
+      this.defendTimer += dt;
+      if (this.defendTimer >= stats.defendDuration) {
+        this.isDefending = false;
+        this.defendCooldownTimer = stats.defendCooldown;
+      }
+    }
+    // Decay the invulnerability window after a dodge.  When this
+    // reaches zero the player can be hit by ultimate attacks again.
+    if (this.invulnerableTimer > 0) {
+      this.invulnerableTimer -= dt;
+      if (this.invulnerableTimer < 0) this.invulnerableTimer = 0;
+    }
+    // Determine ultimate readiness based on HP threshold
+    if (!this.ultimateUsed && this.hp <= this.maxHp * 0.5) {
+      this.ultimateReady = true;
     }
   }
 }
@@ -126,20 +377,34 @@ class Projectile {
    * @param {number} dir Direction: +1 for rightwards, −1 for leftwards
    * @param {Player} owner Player who fired this projectile
    */
-  constructor(x, y, dir, owner) {
+  constructor(x, y, dir, owner, opts = {}) {
     this.x = x;
     this.y = y;
     this.dir = dir;
     this.owner = owner;
-    this.radius = 8;
-    // Look up speed and damage from the owner's configuration.  Each
-    // character can customise their projectile speed and damage via the
-    // debug panel.
-    const cfg = owner.index === 0 ? config.p1 : config.p2;
-    this.speed = cfg.projectileSpeed;
-    this.damage = cfg.projectileDamage;
+    // Options with sensible defaults
+    this.speed    = opts.speed    !== undefined ? opts.speed    : 600;
+    this.damage   = opts.damage   !== undefined ? opts.damage   : 10;
+    this.size     = opts.size     !== undefined ? opts.size     : 1.0;
+    this.isUltimate = opts.isUltimate || false;
+    this.linger   = opts.linger   || 0;
+    this.ghost    = opts.ghost    || false;
+    this.delay    = opts.delay    || 0;
+    // Internal timers
+    this.elapsed  = 0;
+    this.lingerRemaining = 0;
+    this.radius   = 8 * this.size;
+    this.lifespan = 3;
   }
   update(delta) {
+    this.elapsed += delta;
+    // Wait until delay has passed before moving
+    if (this.elapsed < this.delay) return;
+    // If lingering, remain in place and reduce linger time
+    if (this.lingerRemaining > 0) {
+      this.lingerRemaining -= delta;
+      return;
+    }
     this.x += this.dir * this.speed * delta;
   }
   /**
@@ -332,7 +597,6 @@ function resumeAudio() {
 
 // Constants controlling game mechanics
 const MAX_HP    = 100;
-const MAX_MANA  = 100;
 const GRAVITY   = 35; // downward acceleration in pixels per second squared
 
 // When debugging collisions you can enable hitbox rendering.  Setting this
@@ -356,22 +620,20 @@ const config = {
   // indicate upward motion.  Fire cooldown controls how often a player
   // may fire regardless of mana (seconds).
   p1: {
-    jumpCost: 10,
     jumpVelocity: -15,
-    fireCost: 20,
+    jumpCooldown: 2.5,
+    fireCooldown: 0.4,
     projectileSpeed: 600,
     projectileDamage: 15,
-    manaRegenRate: 20,
-    fireCooldown: 0.4
+    projectileSize: 1.0
   },
   p2: {
-    jumpCost: 10,
     jumpVelocity: -15,
-    fireCost: 20,
+    jumpCooldown: 2.5,
+    fireCooldown: 0.4,
     projectileSpeed: 600,
     projectileDamage: 15,
-    manaRegenRate: 20,
-    fireCooldown: 0.4
+    projectileSize: 1.0
   },
   // Length of a single round in seconds.  The timer counts down from this
   // value to zero.  Exposed in the debug panel so testers can speed up or
@@ -443,14 +705,17 @@ function getHpColor(ratio) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-// Key mapping for control events (only keydown triggers actions to avoid
-// repeating the action while a key is held).  We register keydown events
-// below once the game has been initialised.
+// Key mapping for control events.  Each key maps to an action and a
+// player index.  Fire actions are initiated on keydown (startFire)
+// and resolved on keyup (stopFire).  Defend toggles a shield while
+// held.  We register keydown/keyup events once the game begins.
 const controls = {
-  'KeyW':    { action: 'jump',  playerIndex: 0 },
-  'KeyF':    { action: 'fire',  playerIndex: 0 },
-  'ArrowUp': { action: 'jump',  playerIndex: 1 },
-  'KeyL':    { action: 'fire',  playerIndex: 1 }
+  'KeyW':    { action: 'jump',   playerIndex: 0 },
+  'KeyS':    { action: 'defend', playerIndex: 0 },
+  'KeyF':    { action: 'fire',   playerIndex: 0 },
+  'ArrowUp':    { action: 'jump',   playerIndex: 1 },
+  'ArrowDown': { action: 'defend', playerIndex: 1 },
+  'KeyL':    { action: 'fire',   playerIndex: 1 }
 };
 
 /**
@@ -458,66 +723,66 @@ const controls = {
  * players, state variables, event listeners and kicks off the game loop.
  */
 function init() {
-  // Create two players on opposite sides of the arena
-  const p1X = 120;
-  const p2X = canvas.width - 120 - 180; // align right with same margin
-  players = [
-    new Player(p1X, 'Cenno Kio', imgPlayer1,  1),
-    new Player(p2X, 'Rudo Ben',  imgPlayer2, -1)
-  ];
-  // Assign each player a unique index (0 or 1) so configuration can be
-  // referenced via config.p1 and config.p2.  The index is used in methods
-  // such as jump() and fire() to look up per‑player parameters.
-  players.forEach((p, i) => {
-    p.index = i;
-  });
+  // Setup character selection once images are ready.  init() may be
+  // invoked before all images have finished loading; the overlay is
+  // enabled only when imagesReady is true.  After a character is
+  // selected the startGame() function is called.
+  setupCharacterSelect();
 
-  // Scale player sprites proportionally based on their image aspect ratio.
-  // Both characters share the same nominal height to ensure they sit
-  // neatly on the ground.  Widths are computed from the image aspect.
-  const targetHeight = 220;
-  for (const p of players) {
-    const ratio = p.image.width / p.image.height;
-    p.height = targetHeight;
-    p.width  = ratio * targetHeight;
-  }
-
-  // Mark the second player as AI controlled.  Additional timers used to
-  // determine when the AI should fire.
-  players[1].isAI = true;
-  players[1].aiFireTimer = 1.5; // seconds until next shot
-
-  // Reset state for the very first round.  We begin in a countdown
-  // state rather than immediately playing.  The resetRound call
-  // initialises player positions and timers, and sets countdownTimer.
-  projectiles = [];
-  roundOverTimer = 0;
-  resetRound();
-  gameState = 'countdown';
-
-  // Handle keyboard events for jump/fire.  Only react on the first
-  // keydown (not on repeats) so that holding the key doesn’t repeatedly
-  // trigger the action.  Keyup isn’t strictly necessary here but could
-  // be useful for other expansions.
+  // Handle keyboard press events.  Use startFire()/stopFire for
+  // firing; set defending flag for shields.  Pause toggles on P.
   document.addEventListener('keydown', (e) => {
-    // Ignore repeated key presses
     if (e.repeat) return;
-    // Toggle pause with the P key.  When paused the game world stops
-    // updating until resumed.  Do not trigger any other actions.
+    // Pause/unpause
     if (e.code === 'KeyP') {
       paused = !paused;
-      // Update the debug panel button if present
       const pauseBtn = document.getElementById('debug-pause-btn');
       if (pauseBtn) pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      // Show debug panel when paused
+      const dbg = document.getElementById('debug-panel');
+      if (dbg) dbg.style.display = paused ? 'block' : 'none';
       return;
     }
     const ctl = controls[e.code];
     if (!ctl) return;
     const player = players[ctl.playerIndex];
     if (!player) return;
-    if (ctl.action === 'jump') player.jump();
-    else if (ctl.action === 'fire') player.fire();
+    switch (ctl.action) {
+      case 'jump':
+        player.jump();
+        break;
+      case 'fire':
+        player.startFire();
+        break;
+      case 'defend':
+        // Begin defending only if cooldown expired
+        if (player.defendCooldownTimer <= 0) {
+          player.isDefending = true;
+          player.defendTimer = 0;
+        }
+        break;
+    }
     resumeAudio();
+  });
+  document.addEventListener('keyup', (e) => {
+    const ctl = controls[e.code];
+    if (!ctl) return;
+    const player = players[ctl.playerIndex];
+    if (!player) return;
+    switch (ctl.action) {
+      case 'fire':
+        player.stopFire();
+        break;
+      case 'defend':
+        // Stop defending and start cooldown
+        if (player.isDefending) {
+          const stats = CHAR_DATA[player.characterKey];
+          player.isDefending = false;
+          player.defendTimer = 0;
+          player.defendCooldownTimer = stats.defendCooldown;
+        }
+        break;
+    }
   });
 
   // Allow clicking on the on‑screen buttons to control the left player.  The
@@ -533,18 +798,19 @@ function init() {
     const spacing     = 80;
     const jumpX = canvas.width / 2 - controlSize - spacing / 2;
     const fireX = canvas.width / 2 + spacing / 2;
-    // Check vertical bounds first
-    if (y >= controlY && y <= controlY + controlSize) {
-      // Jump area (left icon)
+    if (y >= controlY && y <= controlY + controlSize && players[0]) {
+      // Jump area
       if (x >= jumpX && x <= jumpX + controlSize) {
         players[0].jump();
+      } else if (x >= fireX && x <= fireX + controlSize) {
+        players[0].startFire();
       }
-      // Fire area (right icon)
-      else if (x >= fireX && x <= fireX + controlSize) {
-        players[0].fire();
-      }
+      resumeAudio();
     }
-    resumeAudio();
+  });
+  canvas.addEventListener('mouseup', (e) => {
+    // When releasing the mouse after pressing fire, stop firing for P1
+    if (players[0]) players[0].stopFire();
   });
 
   // Kick off the main loop
@@ -569,6 +835,90 @@ function init() {
       speed: 1 + Math.random() * 1.5
     });
   }
+
+}
+
+// Initialise the game when the page loads.  This ensures that the
+// canvas and other DOM elements are available.  init() will in turn
+// set up the character selection overlay and start the render loop.
+window.addEventListener('load', init);
+
+/**
+ * Configure the character selection overlay.  This overlay is displayed
+ * when the game first loads and allows the user to choose their hero.
+ * After a selection is made the AI picks a remaining character and
+ * startGame() is invoked.
+ */
+function setupCharacterSelect() {
+  const overlay = document.getElementById('character-select-overlay');
+  const startBtn = document.getElementById('start-game-btn');
+  if (!overlay || !startBtn) return;
+  let selectedKey = null;
+  // Wait until all images are ready before allowing selection
+  const wait = setInterval(() => {
+    if (imagesReady) {
+      clearInterval(wait);
+      overlay.style.display = 'flex';
+    }
+  }, 100);
+  // Add click handlers to each character option
+  overlay.querySelectorAll('.character-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const key = opt.getAttribute('data-char');
+      selectedKey = key;
+      // Highlight selection
+      overlay.querySelectorAll('.character-option img').forEach(img => {
+        img.style.borderColor = 'transparent';
+      });
+      opt.querySelector('img').style.borderColor = '#ffcc00';
+      // Enable start button
+      startBtn.disabled = false;
+      startBtn.style.opacity = 1;
+    });
+  });
+  // Start button triggers game start
+  startBtn.addEventListener('click', () => {
+    if (!selectedKey) return;
+    // Choose AI character randomly from remaining options
+    const keys = Object.keys(CHAR_DATA).filter(k => k !== selectedKey);
+    const aiKey = keys[Math.floor(Math.random() * keys.length)];
+    startGame(selectedKey, aiKey);
+    overlay.style.display = 'none';
+  });
+}
+
+/**
+ * Instantiate players based on selected characters and reset state
+ * for a new match.  Called after the player picks a hero from the
+ * selection overlay.
+ * @param {string} p1Key Character key for player 1
+ * @param {string} p2Key Character key for player 2 (AI)
+ */
+function startGame(p1Key, p2Key) {
+  // Create new players with selected characters on opposite sides
+  const p1X = 120;
+  const p2X = canvas.width - 120 - 180;
+  players = [
+    new Player(p1X, CHAR_DATA[p1Key].name, CHAR_DATA[p1Key].sprite, 1, p1Key),
+    new Player(p2X, CHAR_DATA[p2Key].name, CHAR_DATA[p2Key].sprite, -1, p2Key)
+  ];
+  players.forEach((p, i) => p.index = i);
+  // Scale sprites proportionally
+  const targetHeight = 220;
+  for (const p of players) {
+    const ratio = p.image.width / p.image.height;
+    p.height = targetHeight;
+    p.width  = ratio * targetHeight;
+  }
+  // Mark second player as AI
+  players[1].isAI = true;
+  players[1].aiFireTimer = 1 + Math.random();
+  // Reset state
+  projectiles = [];
+  particles = [];
+  roundOverTimer = 0;
+  resetRound();
+  gameState = 'countdown';
 }
 
 /**
@@ -590,11 +940,20 @@ function resetRound() {
   const baseY = canvas.height - 220 - 120; // leave space for controls at bottom
   for (const p of players) {
     p.hp   = MAX_HP;
-    p.mana = MAX_MANA;
     p.startY = baseY;
     p.y = baseY;
     p.vy = 0;
+    // Reset all timers and state flags
     p.fireCooldownTimer = 0;
+    p.jumpCooldownTimer = 0;
+    p.defendTimer = 0;
+    p.defendCooldownTimer = 0;
+    p.isDefending = false;
+    p.firePressed = false;
+    p.fireHoldTime = 0;
+    p.ultimateReady = false;
+    p.ultimateUsed = false;
+    p.invulnerableTimer = 0;
   }
 }
 
@@ -685,17 +1044,10 @@ function updateWorld(delta) {
   roundTimer -= delta;
   if (roundTimer < 0) roundTimer = 0;
 
-  // Update players: apply gravity, update vertical position, regen mana
+  // Update players: apply gravity and timers
   for (const p of players) {
-    // Look up per‑player configuration
-    const cfg = p.index === 0 ? config.p1 : config.p2;
-    // Mana regeneration capped at MAX_MANA
-    p.mana = Math.min(MAX_MANA, p.mana + cfg.manaRegenRate * delta);
-    // Decrement fire cooldown timer
-    if (p.fireCooldownTimer > 0) {
-      p.fireCooldownTimer -= delta;
-      if (p.fireCooldownTimer < 0) p.fireCooldownTimer = 0;
-    }
+    // Update internal timers (cooldowns, fire hold, defend)
+    p.updateTimers(delta);
     // Apply gravity
     if (p.vy !== 0 || p.y < p.startY) {
       p.vy += GRAVITY * delta;
@@ -718,18 +1070,54 @@ function updateWorld(delta) {
     // Check collisions with the opposing player
     for (const p of players) {
       if (p !== proj.owner && p.hp > 0 && proj.collides(p)) {
-        // Collision!  Reduce target health and remove projectile.  Damage
-        // is determined by the owner’s projectile configuration.
+        // Ignore collisions if projectile has not started due to delay
+        if (proj.elapsed < proj.delay) continue;
+        // -----------------------------------------------------------------
+        // Rock‑Paper‑Scissors collision resolution
+        // 1) Dodge beats Ult: if the player is currently invulnerable
+        //    (within the jump invulnerability window) and the projectile
+        //    is an ultimate, the ult misses entirely.  Normal shots
+        //    still connect during a jump.  Remove the projectile and
+        //    play a soft miss sound.
+        if (p.invulnerableTimer > 0 && proj.isUltimate) {
+          // Remove the projectile and optionally play a light whoosh
+          projectiles.splice(i, 1);
+          playTone(440, 0.05, 'sine');
+          break;
+        }
+        // 2) Defend beats Normal: if the target is defending and the
+        //    projectile is not an ultimate (or is a fake ghost), then
+        //    block the shot.  Spawn a grey ripple and consume the
+        //    projectile.  Ghost projectiles from Vian’s ult also
+        //    dissipate harmlessly on impact.
+        if ((p.isDefending && !proj.isUltimate) || proj.ghost) {
+          const colour = '#cccccc';
+          for (let j = 0; j < 6; j++) {
+            particles.push(new Particle(proj.x, proj.y, colour));
+          }
+          playTone(294, 0.1, 'triangle');
+          projectiles.splice(i, 1);
+          break;
+        }
+        // 3) Normal beats Dodge and Ult beats Defend: all other
+        //    collisions result in damage.  Apply damage and handle
+        //    lingering effects for Cenno’s ultimate.  After a hit
+        //    normal projectiles are destroyed; ultimates either linger
+        //    or vanish depending on their behaviour.
         p.hp -= proj.damage;
-        // Spawn explosion particles at impact point.  Colour reflects
-        // which player fired the projectile.
+        if (proj.linger > 0) {
+          proj.damage = 0;
+          proj.lingerRemaining = proj.linger;
+          proj.ghost = true;
+        } else {
+          projectiles.splice(i, 1);
+        }
+        // Spawn explosion particles with colour based on owner
         const colour = (proj.owner === players[0]) ? '#ffd85b' : '#ff5b5b';
         for (let j = 0; j < 8; j++) {
           particles.push(new Particle(proj.x, proj.y, colour));
         }
-        // Play a hit sound: lower frequency for damage
         playTone(196, 0.15, 'sawtooth');
-        projectiles.splice(i, 1);
         break;
       }
     }
@@ -793,13 +1181,18 @@ function updateWorld(delta) {
  */
 function updateAI(delta) {
   const ai = players[1];
-  // Fire periodically based on a countdown timer
+  // Fire periodically based on a countdown timer.  AI will choose
+  // between a normal shot and ultimate if available.
   ai.aiFireTimer -= delta;
-  const cfg = config.p2;
-  if (ai.aiFireTimer <= 0 && ai.mana >= cfg.fireCost && ai.fireCooldownTimer <= 0) {
-    ai.fire();
-    // schedule next shot between 1 and 2 seconds
-    ai.aiFireTimer = 1 + Math.random() * 1.5;
+  if (ai.aiFireTimer <= 0 && ai.fireCooldownTimer <= 0) {
+    // 30% chance to attempt an ultimate if ready
+    if (ai.ultimateReady && !ai.ultimateUsed && Math.random() < 0.3) {
+      ai.fireUltimate();
+    } else {
+      ai.fireNormal();
+    }
+    // schedule next shot between 0.8 and 1.6 seconds
+    ai.aiFireTimer = 0.8 + Math.random() * 0.8;
   }
   // Dodge incoming projectiles: look for any projectile heading towards
   // the AI that will pass within a horizontal threshold soon.  If found
@@ -845,39 +1238,44 @@ function drawScene() {
     ctx.fill();
   }
 
-  // Draw HUD (names, HP/mana bars, wins)
-  drawHUD();
-
-  // Draw players
-  for (const p of players) {
-    // Draw sprite
-    ctx.drawImage(p.image, p.x, p.y, p.width, p.height);
-    // Draw simple shadow below player
-    const shadowW = p.width * 0.6;
-    const shadowH = 20;
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(p.x + p.width/2, p.startY + p.height + 10, shadowW/2, shadowH/2, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Draw projectiles
-  for (const proj of projectiles) {
-    ctx.beginPath();
-    ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
-    // Colour based on owner
-    ctx.fillStyle = proj.owner === players[0] ? '#ffd85b' : '#ff5b5b';
-    ctx.fill();
-  }
-
-  // Draw explosion particles on top of projectiles
-  for (const part of particles) {
-    part.draw(ctx);
-  }
-
-  // Render hitboxes for debugging.  This is drawn after the main sprites and
-  // particles so that outlines appear on top of the characters and bullets.
-  if (SHOW_HITBOX) {
-    drawHitboxes();
+  // If players have not been created yet (e.g. the user has not
+  // selected a character) then skip drawing gameplay elements such as
+  // HUD, players, projectiles and particles.  We still render the
+  // background and stars so that the character selection screen has a
+  // pleasant backdrop.  Without this guard the game would throw
+  // errors referencing undefined players during initial page load.
+  if (Array.isArray(players) && players.length > 0) {
+    // Draw HUD (names, HP bars, wins) only once players exist
+    drawHUD();
+    // Draw players
+    for (const p of players) {
+      // Draw sprite
+      ctx.drawImage(p.image, p.x, p.y, p.width, p.height);
+      // Draw simple shadow below player
+      const shadowW = p.width * 0.6;
+      const shadowH = 20;
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(p.x + p.width/2, p.startY + p.height + 10, shadowW/2, shadowH/2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Draw projectiles
+    for (const proj of projectiles) {
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+      // Colour based on owner
+      ctx.fillStyle = proj.owner === players[0] ? '#ffd85b' : '#ff5b5b';
+      ctx.fill();
+    }
+    // Draw explosion particles on top of projectiles
+    for (const part of particles) {
+      part.draw(ctx);
+    }
+    // Render hitboxes for debugging.  This is drawn after the main sprites and
+    // particles so that outlines appear on top of the characters and bullets.
+    if (SHOW_HITBOX) {
+      drawHitboxes();
+    }
   }
 
   // Draw bottom control icons (non‑interactive, purely decorative)
@@ -901,27 +1299,32 @@ function drawScene() {
   // happens after most scene elements so that the overlay appears on top
   // of the arena artwork but still behind the end‑of‑match message.
   drawDebugInfo();
-
-  // If the match has been won by someone, overlay a message
-  const winner = players.find(p => p.wins >= 2);
-  if (gameState === 'finished' && winner) {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 50px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${winner.name} Wins!`, canvas.width / 2, canvas.height / 2);
-    ctx.font = '24px sans-serif';
-    ctx.fillText('Refresh the page to play again.', canvas.width / 2, canvas.height / 2 + 40);
-  }
-
-  // Draw pre‑round countdown overlay
-  if (gameState === 'countdown' && countdownTimer > 0) {
-    drawCountdown();
-  }
-  // Draw KO indicator if active
-  if (koTimer > 0) {
-    drawKO();
+  // Only reference players when they exist to avoid errors before
+  // character selection.  The winner message, countdown and KO
+  // overlays depend on the existence of the players array and
+  // game state.  Without this guard the page would throw a
+  // TypeError when checking players before a game has started.
+  if (Array.isArray(players) && players.length > 0) {
+    // If the match has been won by someone, overlay a message
+    const winner = players.find(p => p.wins >= 2);
+    if (gameState === 'finished' && winner) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 50px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${winner.name} Wins!`, canvas.width / 2, canvas.height / 2);
+      ctx.font = '24px sans-serif';
+      ctx.fillText('Refresh the page to play again.', canvas.width / 2, canvas.height / 2 + 40);
+    }
+    // Draw pre‑round countdown overlay
+    if (gameState === 'countdown' && countdownTimer > 0) {
+      drawCountdown();
+    }
+    // Draw KO indicator if active
+    if (koTimer > 0) {
+      drawKO();
+    }
   }
 }
 
@@ -933,13 +1336,19 @@ function drawHUD() {
   const marginX = 30;
   const marginY = 20;
   const barWidth  = 300;
-  // Health and mana bar sizes.  Making the bars taller helps them
-  // stand out when stacked vertically.
-  const hpBarHeight   = 20;
-  const manaBarHeight = 14;
+  // Health bar size.  Without mana we only draw a single bar.
+  const hpBarHeight   = 22;
   const barGap    = 6;
   const avatarSize = 44;
   const sectionHeight = avatarSize;
+  // If players do not exist (e.g. before the match starts), do not
+  // attempt to draw the HUD.  Without this check the code below
+  // would reference undefined players and throw.  The HUD is only
+  // rendered once players have been instantiated in startGame().
+  if (!Array.isArray(players) || players.length === 0) {
+    return;
+  }
+
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
@@ -974,21 +1383,26 @@ function drawHUD() {
     // HP bar background
     const barX = x + avatarSize + 10;
     const barY = y + avatarSize + 6;
+    // Background for HP bar
     ctx.fillStyle = '#073047';
-    ctx.fillRect(barX, barY, barWidth, hpBarHeight + manaBarHeight + barGap);
-    // HP bar (draw fill and border) – use dynamic colour based on health
+    ctx.fillRect(barX, barY, barWidth, hpBarHeight);
+    // HP bar (fill and border)
     const hpWidth = (p.hp / MAX_HP) * barWidth;
     ctx.fillStyle = getHpColor(p.hp / MAX_HP);
     ctx.fillRect(barX, barY, hpWidth, hpBarHeight);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barWidth, hpBarHeight);
-    // Mana bar (draw fill and border)
-    const manaWidth = (p.mana / MAX_MANA) * barWidth;
-    ctx.fillStyle = '#0099ff';
-    const manaY = barY + hpBarHeight + barGap;
-    ctx.fillRect(barX, manaY, manaWidth, manaBarHeight);
-    ctx.strokeRect(barX, manaY, barWidth, manaBarHeight);
+    // Ultimate indicator: draw a small bar below HP if ready
+    if (p.ultimateReady && !p.ultimateUsed) {
+      const ultY = barY + hpBarHeight + 4;
+      const ultW = 80;
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillRect(barX, ultY, ultW, 6);
+      ctx.fillStyle = '#000';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('ULT', barX + 4, ultY + 4);
+    }
   }
   // Right player (index 1) – mirrored horizontally
   {
@@ -1023,8 +1437,9 @@ function drawHUD() {
     // HP/Mana bars – draw from right to left
     const barX = x + barWidth + avatarSize + 10 - barWidth;
     const barY = y + avatarSize + 6;
+    // HP bar background
     ctx.fillStyle = '#073047';
-    ctx.fillRect(barX, barY, barWidth, hpBarHeight + manaBarHeight + barGap);
+    ctx.fillRect(barX, barY, barWidth, hpBarHeight);
     // HP bar (dynamic colour)
     const hpWidth2 = (p.hp / MAX_HP) * barWidth;
     ctx.fillStyle = getHpColor(p.hp / MAX_HP);
@@ -1032,12 +1447,18 @@ function drawHUD() {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barWidth, hpBarHeight);
-    // Mana bar
-    const manaWidth2 = (p.mana / MAX_MANA) * barWidth;
-    ctx.fillStyle = '#0099ff';
-    const manaY2 = barY + hpBarHeight + barGap;
-    ctx.fillRect(barX + (barWidth - manaWidth2), manaY2, manaWidth2, manaBarHeight);
-    ctx.strokeRect(barX, manaY2, barWidth, manaBarHeight);
+    // Ultimate indicator on right side
+    if (p.ultimateReady && !p.ultimateUsed) {
+      const ultY = barY + hpBarHeight + 4;
+      const ultW = 80;
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillRect(barX + (barWidth - ultW), ultY, ultW, 6);
+      ctx.fillStyle = '#000';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('ULT', barX + barWidth - 4, ultY + 4);
+      ctx.textAlign = 'left';
+    }
   }
   // Draw timer in the top centre
   ctx.fillStyle = '#ffffff';
@@ -1129,13 +1550,12 @@ function drawDebugInfo() {
   ['p1','p2'].forEach((key, idx) => {
     const cfg = config[key];
     lines.push(`Player ${idx+1}:`);
-    lines.push(`  Jump cost: ${cfg.jumpCost} mana`);
+    lines.push(`  Jump cooldown: ${cfg.jumpCooldown}s`);
     lines.push(`  Jump velocity: ${Math.abs(cfg.jumpVelocity)} px/s`);
-    lines.push(`  Fire cost: ${cfg.fireCost} mana`);
     lines.push(`  Fire cooldown: ${cfg.fireCooldown}s`);
     lines.push(`  Projectile speed: ${cfg.projectileSpeed} px/s`);
+    lines.push(`  Projectile size: ${cfg.projectileSize}×`);
     lines.push(`  Damage per hit: ${cfg.projectileDamage} HP`);
-    lines.push(`  Mana regen: ${cfg.manaRegenRate}/s`);
   });
   lines.push(`Round duration: ${config.roundDuration}s`);
   lines.push(`Hitbox margin X: ${config.hitboxMarginX}`);
@@ -1212,21 +1632,19 @@ function initDebugControls() {
   const refs = {
     pauseBtn: document.getElementById('debug-pause-btn'),
     // Player 1 fields
-    p1JumpCost: document.getElementById('debug-p1-jump-cost'),
     p1JumpVel: document.getElementById('debug-p1-jump-velocity'),
-    p1FireCost: document.getElementById('debug-p1-fire-cost'),
     p1FireCooldown: document.getElementById('debug-p1-fire-cooldown'),
     p1ProjSpeed: document.getElementById('debug-p1-projectile-speed'),
     p1ProjDamage: document.getElementById('debug-p1-projectile-damage'),
-    p1ManaRegen: document.getElementById('debug-p1-mana-regen'),
+    p1JumpCooldown: document.getElementById('debug-p1-jump-cooldown'),
+    p1ProjSize: document.getElementById('debug-p1-projectile-size'),
     // Player 2 fields
-    p2JumpCost: document.getElementById('debug-p2-jump-cost'),
     p2JumpVel: document.getElementById('debug-p2-jump-velocity'),
-    p2FireCost: document.getElementById('debug-p2-fire-cost'),
     p2FireCooldown: document.getElementById('debug-p2-fire-cooldown'),
     p2ProjSpeed: document.getElementById('debug-p2-projectile-speed'),
     p2ProjDamage: document.getElementById('debug-p2-projectile-damage'),
-    p2ManaRegen: document.getElementById('debug-p2-mana-regen'),
+    p2JumpCooldown: document.getElementById('debug-p2-jump-cooldown'),
+    p2ProjSize: document.getElementById('debug-p2-projectile-size'),
     // Global fields
     roundDuration: document.getElementById('debug-round-duration'),
     hitboxMarginX: document.getElementById('debug-hitbox-margin-x'),
@@ -1247,21 +1665,19 @@ function initDebugControls() {
   // Helper to set all input values based on the current config state
   function populateInputs() {
     // Player 1
-    refs.p1JumpCost.value    = config.p1.jumpCost;
     refs.p1JumpVel.value     = Math.abs(config.p1.jumpVelocity);
-    refs.p1FireCost.value    = config.p1.fireCost;
     refs.p1FireCooldown.value= config.p1.fireCooldown;
     refs.p1ProjSpeed.value   = config.p1.projectileSpeed;
     refs.p1ProjDamage.value  = config.p1.projectileDamage;
-    refs.p1ManaRegen.value   = config.p1.manaRegenRate;
+    refs.p1JumpCooldown.value = config.p1.jumpCooldown;
+    refs.p1ProjSize.value    = config.p1.projectileSize;
     // Player 2
-    refs.p2JumpCost.value    = config.p2.jumpCost;
     refs.p2JumpVel.value     = Math.abs(config.p2.jumpVelocity);
-    refs.p2FireCost.value    = config.p2.fireCost;
     refs.p2FireCooldown.value= config.p2.fireCooldown;
     refs.p2ProjSpeed.value   = config.p2.projectileSpeed;
     refs.p2ProjDamage.value  = config.p2.projectileDamage;
-    refs.p2ManaRegen.value   = config.p2.manaRegenRate;
+    refs.p2JumpCooldown.value = config.p2.jumpCooldown;
+    refs.p2ProjSize.value    = config.p2.projectileSize;
     // Global
     refs.roundDuration.value  = config.roundDuration;
     refs.hitboxMarginX.value  = config.hitboxMarginX;
@@ -1280,17 +1696,9 @@ function initDebugControls() {
     refs.pauseBtn.textContent = paused ? 'Resume' : 'Pause';
   });
   // Player 1 listeners
-  refs.p1JumpCost.addEventListener('input', () => {
-    const val = parseFloat(refs.p1JumpCost.value);
-    if (!isNaN(val)) config.p1.jumpCost = val;
-  });
   refs.p1JumpVel.addEventListener('input', () => {
     const val = parseFloat(refs.p1JumpVel.value);
     if (!isNaN(val)) config.p1.jumpVelocity = -Math.abs(val);
-  });
-  refs.p1FireCost.addEventListener('input', () => {
-    const val = parseFloat(refs.p1FireCost.value);
-    if (!isNaN(val)) config.p1.fireCost = val;
   });
   refs.p1FireCooldown.addEventListener('input', () => {
     const val = parseFloat(refs.p1FireCooldown.value);
@@ -1304,22 +1712,18 @@ function initDebugControls() {
     const val = parseFloat(refs.p1ProjDamage.value);
     if (!isNaN(val)) config.p1.projectileDamage = val;
   });
-  refs.p1ManaRegen.addEventListener('input', () => {
-    const val = parseFloat(refs.p1ManaRegen.value);
-    if (!isNaN(val)) config.p1.manaRegenRate = val;
+  refs.p1JumpCooldown.addEventListener('input', () => {
+    const val = parseFloat(refs.p1JumpCooldown.value);
+    if (!isNaN(val) && val >= 0) config.p1.jumpCooldown = val;
+  });
+  refs.p1ProjSize.addEventListener('input', () => {
+    const val = parseFloat(refs.p1ProjSize.value);
+    if (!isNaN(val) && val > 0) config.p1.projectileSize = val;
   });
   // Player 2 listeners
-  refs.p2JumpCost.addEventListener('input', () => {
-    const val = parseFloat(refs.p2JumpCost.value);
-    if (!isNaN(val)) config.p2.jumpCost = val;
-  });
   refs.p2JumpVel.addEventListener('input', () => {
     const val = parseFloat(refs.p2JumpVel.value);
     if (!isNaN(val)) config.p2.jumpVelocity = -Math.abs(val);
-  });
-  refs.p2FireCost.addEventListener('input', () => {
-    const val = parseFloat(refs.p2FireCost.value);
-    if (!isNaN(val)) config.p2.fireCost = val;
   });
   refs.p2FireCooldown.addEventListener('input', () => {
     const val = parseFloat(refs.p2FireCooldown.value);
@@ -1333,9 +1737,13 @@ function initDebugControls() {
     const val = parseFloat(refs.p2ProjDamage.value);
     if (!isNaN(val)) config.p2.projectileDamage = val;
   });
-  refs.p2ManaRegen.addEventListener('input', () => {
-    const val = parseFloat(refs.p2ManaRegen.value);
-    if (!isNaN(val)) config.p2.manaRegenRate = val;
+  refs.p2JumpCooldown.addEventListener('input', () => {
+    const val = parseFloat(refs.p2JumpCooldown.value);
+    if (!isNaN(val) && val >= 0) config.p2.jumpCooldown = val;
+  });
+  refs.p2ProjSize.addEventListener('input', () => {
+    const val = parseFloat(refs.p2ProjSize.value);
+    if (!isNaN(val) && val > 0) config.p2.projectileSize = val;
   });
   // Global listeners
   refs.roundDuration.addEventListener('input', () => {
